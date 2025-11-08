@@ -1,0 +1,43 @@
+.monitoring-panel {
+  width: 100%;
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.monitoring-panel h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #111827;
+}
+
+.monitoring-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.monitoring-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+}
+
+.monitoring-card-label {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.monitoring-card-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
