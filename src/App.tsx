@@ -24,6 +24,7 @@ import CircuitBreakerIcon from "./components/circuit-breaker";
 import TrafficProfilePanel from "./components/traffic-profile-panel";
 import ScenarioPanel from "./components/scenario-panel";
 import MetricsDashboard, { type NodeInsight } from "./components/metrics-dashboard";
+import GuideView from "./components/guide-view";
 import ReactFlow, { 
   Background, 
   Controls, 
@@ -2826,7 +2827,7 @@ export default function App() {
   const [showScenarioPanel, setShowScenarioPanel] = useState(true);
   const [showPatternPanel, setShowPatternPanel] = useState(true);
   const [showTrafficPanel, setShowTrafficPanel] = useState(true);
-  const [activeView, setActiveView] = useState<"builder" | "metrics">("builder");
+  const [activeView, setActiveView] = useState<"builder" | "metrics" | "guide">("builder");
   const loadTemplate = useCallback(
     (templateId: string, sidebarOpen: boolean) => {
       const template = systemTemplates.find((t) => t.id === templateId);
@@ -4109,9 +4110,16 @@ export default function App() {
               >
                 Metrics Board
               </button>
+              <button
+                type="button"
+                className={activeView === "guide" ? "active" : ""}
+                onClick={() => setActiveView("guide")}
+              >
+                Guide
+              </button>
             </div>
           </header>
-          {activeView === "builder" ? (
+          {activeView === "builder" && (
             <>
       <div className="layout-controls">
         <div className="template-menu" ref={templateMenuRef}>
@@ -4460,7 +4468,8 @@ export default function App() {
         />
       )}
             </>
-          ) : (
+          )}
+          {activeView === "metrics" && (
             <MetricsDashboard
               summary={monitoringSummary}
               nodeInsights={nodeInsights}
@@ -4468,6 +4477,7 @@ export default function App() {
               scenarioEvents={scenarioEvents}
             />
           )}
+          {activeView === "guide" && <GuideView />}
         </div>
       </NodeRenameContext.Provider>
     </NodeConfigureContext.Provider>
