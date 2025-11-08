@@ -1240,17 +1240,28 @@ const layoutNodesWithFlow = (
   const NODE_WIDTH = 220;
   const NODE_HEIGHT = 180;
   const HORIZONTAL_PADDING = 160;
-  const VERTICAL_PADDING = 200;
   const MIN_HORIZONTAL_SPACING = NODE_WIDTH + HORIZONTAL_PADDING;
-  const MIN_VERTICAL_SPACING = NODE_HEIGHT + VERTICAL_PADDING;
+  const MIN_VERTICAL_SPACING = NODE_HEIGHT + 80;
+  const CATEGORY_SEQUENCE = [
+    "Clients & Entry",
+    "Edge & Delivery",
+    "Networking & Control",
+    "Application Services",
+    "Caching & Messaging",
+    "Data & Storage",
+    "Observability",
+  ];
+  const categoryOrder = new Map(CATEGORY_SEQUENCE.map((category, index) => [category, index]));
 
   const levelMap = new Map<string, number>();
   const indegree = new Map<string, number>();
-  const adjacency = new Map<string, string[]>();
+  const forwardAdjacency = new Map<string, string[]>();
+  const predecessors = new Map<string, string[]>();
+  const successors = new Map<string, string[]>();
 
   nodes.forEach((node) => {
     indegree.set(node.id, 0);
-    adjacency.set(node.id, []);
+    forwardAdjacency.set(node.id, []);
   });
 
   edges.forEach((edge) => {
@@ -1258,10 +1269,18 @@ const layoutNodesWithFlow = (
       indegree.set(edge.target, 0);
     }
     indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
-    if (!adjacency.has(edge.source)) {
-      adjacency.set(edge.source, []);
+    if (!forwardAdjacency.has(edge.source)) {
+      forwardAdjacency.set(edge.source, []);
     }
-    adjacency.get(edge.source)!.push(edge.target);
+    forwardAdjacency.get(edge.source)!.push(edge.target);
+    if (!predecessors.has(edge.target)) {
+      predecessors.set(edge.target, []);
+    }
+    predecessors.get(edge.target)!.push(edge.source);
+    if (!successors.has(edge.source)) {
+      successors.set(edge.source, []);
+    }
+    successors.get(edge.source)!.push(edge.target);
   });
 
   const queue: string[] = [];
@@ -1275,7 +1294,7 @@ const layoutNodesWithFlow = (
   while (queue.length > 0) {
     const current = queue.shift()!;
     const currentLevel = levelMap.get(current) ?? 0;
-    const neighbors = adjacency.get(current) || [];
+    const neighbors = forwardAdjacency.get(current) || [];
     neighbors.forEach((target) => {
       const nextLevel = Math.max(currentLevel + 1, levelMap.get(target) ?? 0);
       levelMap.set(target, nextLevel);
@@ -1286,7 +1305,6 @@ const layoutNodesWithFlow = (
     });
   }
 
-  // Assign levels to nodes that didn't appear in edges
   nodes.forEach((node) => {
     if (!levelMap.has(node.id)) {
       levelMap.set(node.id, levelMap.size);
@@ -1303,73 +1321,112 @@ const layoutNodesWithFlow = (
   });
 
   const levels = Array.from(levelGroups.keys()).sort((a, b) => a - b);
+  const levelIndexMap = new Map<number, number>();
+  levels.forEach((level, index) => levelIndexMap.set(level, index));
+
   const baseX = 80;
   const baseY = 60;
   const maxWidth = Math.max(availableWidth - 160, 600);
-  const maxHeight = Math.max(availableHeight - 120, 400);
-  const nodesPerColumn = Math.max(2, Math.floor(maxHeight / MIN_VERTICAL_SPACING));
-  const levelColumns = new Map<number, { startColumn: number; columns: Node[][] }>();
-  let runningColumnIndex = 0;
+  const maxHeight = Math.max(availableHeight - 160, 420);
+  const horizontalSpacing =
+    levels.length > 1
+      ? Math.max(MIN_HORIZONTAL_SPACING, maxWidth / Math.max(levels.length - 1, 1))
+      : MIN_HORIZONTAL_SPACING;
 
+  const rowAssignments = new Map<string, number>();
+  const levelOrders = new Map<number, Node[]>();
+
+  const getCategoryIndex = (node: Node) => {
+    const label = node.data.label as string | undefined;
+    const category = getNodeCategory(label);
+    if (!category) return CATEGORY_SEQUENCE.length;
+    return categoryOrder.get(category) ?? CATEGORY_SEQUENCE.length;
+  };
+
+  const comparatorFactory =
+    (scoreFn: (nodeId: string) => number | null) => (a: Node, b: Node) => {
+      const scoreA = scoreFn(a.id);
+      const scoreB = scoreFn(b.id);
+      if (scoreA !== null && scoreB !== null && scoreA !== scoreB) {
+        return scoreA - scoreB;
+      }
+      if (scoreA !== null && scoreB === null) return -1;
+      if (scoreA === null && scoreB !== null) return 1;
+      const catA = getCategoryIndex(a);
+      const catB = getCategoryIndex(b);
+      if (catA !== catB) return catA - catB;
+      const labelA = (a.data.displayLabel as string) || (a.data.label as string) || a.id;
+      const labelB = (b.data.displayLabel as string) || (b.data.label as string) || b.id;
+      return labelA.localeCompare(labelB);
+    };
+
+  const averageScore = (ids: string[], map: Map<string, number>) => {
+    const scores = ids
+      .map((id) => map.get(id))
+      .filter((value): value is number => typeof value === "number");
+    if (!scores.length) return null;
+    return scores.reduce((sum, value) => sum + value, 0) / scores.length;
+  };
+
+  // Top-down pass (align by predecessors)
   levels.forEach((level) => {
     const groupNodes = levelGroups.get(level) || [];
-    const sortedGroup = groupNodes.slice().sort((a, b) => {
-      const catA = getNodeCategory(a.data.label as string | undefined) || "";
-      const catB = getNodeCategory(b.data.label as string | undefined) || "";
-      return catA.localeCompare(catB);
+    const comparator = comparatorFactory((nodeId) => {
+      const preds = predecessors.get(nodeId) || [];
+      return averageScore(preds, rowAssignments);
     });
-
-    const chunkSize = Math.max(1, nodesPerColumn);
-    const columns: Node[][] = [];
-    if (sortedGroup.length === 0) {
-      columns.push([]);
-    } else {
-      for (let i = 0; i < sortedGroup.length; i += chunkSize) {
-        columns.push(sortedGroup.slice(i, i + chunkSize));
-      }
-    }
-
-    levelColumns.set(level, {
-      startColumn: runningColumnIndex,
-      columns,
+    const ordered = groupNodes.slice().sort(comparator);
+    ordered.forEach((node, index) => {
+      rowAssignments.set(node.id, index);
     });
-    runningColumnIndex += Math.max(columns.length, 1);
+    levelOrders.set(level, ordered);
   });
 
-  const totalColumns = Math.max(runningColumnIndex, 1);
-  const horizontalSpacing =
-    totalColumns > 1
-      ? Math.max(MIN_HORIZONTAL_SPACING, maxWidth / (totalColumns - 1))
-      : MIN_HORIZONTAL_SPACING;
-  const verticalSpacing = MIN_VERTICAL_SPACING;
+  // Bottom-up pass (align by successors)
+  for (let i = levels.length - 1; i >= 0; i -= 1) {
+    const level = levels[i];
+    const groupNodes = levelOrders.get(level) || [];
+    const comparator = comparatorFactory((nodeId) => {
+      const succs = successors.get(nodeId) || [];
+      return averageScore(succs, rowAssignments);
+    });
+    const ordered = groupNodes.slice().sort(comparator);
+    ordered.forEach((node, index) => {
+      rowAssignments.set(node.id, index);
+    });
+    levelOrders.set(level, ordered);
+  }
+
+  const levelLayoutMeta = new Map<
+    number,
+    {
+      rowCount: number;
+      spacing: number;
+      origin: number;
+    }
+  >();
+
+  levels.forEach((level) => {
+    const rowCount = levelOrders.get(level)?.length ?? 1;
+    const spacing =
+      rowCount > 1
+        ? Math.max(
+            NODE_HEIGHT + 40,
+            Math.min(MIN_VERTICAL_SPACING, maxHeight / Math.max(rowCount - 1, 1))
+          )
+        : NODE_HEIGHT + 40;
+    const totalHeight = spacing * Math.max(rowCount - 1, 0);
+    const origin = baseY + Math.max(0, (maxHeight - totalHeight) / 2);
+    levelLayoutMeta.set(level, { rowCount, spacing, origin });
+  });
 
   return nodes.map((node) => {
-    const origLevel = levelMap.get(node.id) ?? levels[0] ?? 0;
-    const columnMeta = levelColumns.get(origLevel);
-
-    let absoluteColumnIndex = 0;
-    let rowIndex = 0;
-
-    if (columnMeta) {
-      let found = false;
-      for (let localColumn = 0; localColumn < columnMeta.columns.length; localColumn += 1) {
-        const columnNodes = columnMeta.columns[localColumn];
-        const idx = columnNodes.findIndex((n) => n.id === node.id);
-        if (idx !== -1) {
-          absoluteColumnIndex = columnMeta.startColumn + localColumn;
-          rowIndex = idx;
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        absoluteColumnIndex = columnMeta.startColumn;
-        rowIndex = columnMeta.columns[0]?.length ?? 0;
-      }
-    }
-
-    const x = baseX + absoluteColumnIndex * horizontalSpacing;
-    const y = baseY + rowIndex * verticalSpacing;
+    const level = levelMap.get(node.id) ?? 0;
+    const levelIndex = levelIndexMap.get(level) ?? 0;
+    const meta = levelLayoutMeta.get(level) ?? { rowCount: 1, spacing: MIN_VERTICAL_SPACING, origin: baseY };
+    const rowIndex = rowAssignments.get(node.id) ?? 0;
+    const x = baseX + levelIndex * horizontalSpacing;
+    const y = meta.origin + rowIndex * meta.spacing;
     return {
       ...node,
       position: { x, y },
@@ -2976,6 +3033,19 @@ export default function App() {
     [selectedFlowId, showLeftPanel, showScenarioPanel, setEdges, setNodes]
   );
 
+  const handleApplyGuideTemplate = useCallback(
+    (templateData: { name?: string; nodes: any[]; edges: any[] }) => {
+      try {
+        loadImportedTemplate(templateData);
+        setCurrentTemplateId(templateData.name ?? "guide-snapshot");
+      } catch (error) {
+        console.error(error);
+        window.alert("Failed to apply the generated template. Please try again.");
+      }
+    },
+    [loadImportedTemplate]
+  );
+
   const handleExportTemplate = useCallback(() => {
     if (nodes.length === 0) {
       window.alert("There are no nodes on the canvas to export.");
@@ -4477,7 +4547,7 @@ export default function App() {
               scenarioEvents={scenarioEvents}
             />
           )}
-          {activeView === "guide" && <GuideView />}
+          {activeView === "guide" && <GuideView onApplyTemplate={handleApplyGuideTemplate} />}
         </div>
       </NodeRenameContext.Provider>
     </NodeConfigureContext.Provider>
