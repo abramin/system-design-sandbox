@@ -2,8 +2,6 @@ import { useMemo } from "react";
 import type { JSX } from "react";
 import usageDoc from "../../docs/USAGE.md?raw";
 
-const usageDocHref = new URL("../../docs/USAGE.md", import.meta.url).href;
-
 type DocNode =
   | { type: "heading"; level: number; content: string }
   | { type: "paragraph"; content: string }
@@ -164,29 +162,8 @@ export default function GuideView() {
           if (node.type === "heading") {
             const Tag = `h${Math.min(node.level, 3)}` as keyof JSX.IntrinsicElements;
             const anchor = slugify(node.content);
-            const key = `${anchor}-${index}`;
-            const headingElement = (
-              <Tag id={anchor} className="guide-heading">
-                {node.content}
-              </Tag>
-            );
-            if (index === 0 && node.level === 1) {
-              return (
-                <div key={key} className="guide-top-bar">
-                  {headingElement}
-                  <a
-                    className="guide-link"
-                    href={usageDocHref}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open Markdown
-                  </a>
-                </div>
-              );
-            }
             return (
-              <Tag key={key} id={anchor} className="guide-heading">
+              <Tag key={`${anchor}-${index}`} id={anchor} className="guide-heading">
                 {node.content}
               </Tag>
             );
