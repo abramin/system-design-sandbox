@@ -64,3 +64,11 @@ export interface CapacityUsage {
   unit?: string;
   label?: string;
 }
+
+export interface SloTargets {
+  latencyMs: number;
+  /**
+   * Stored as a decimal fraction (e.g., 0.01 for 1%).
+   */
+  errorRate: number;
+}

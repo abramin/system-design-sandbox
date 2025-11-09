@@ -1,4 +1,5 @@
 import type { Edge, Node } from "reactflow";
+import type { SloTargets } from "../../types/system";
 
 export interface UserConfig {
   daus?: number;
@@ -223,6 +224,7 @@ export interface SystemTemplate {
   description: string;
   nodes: Node[];
   edges: Edge[];
+  sloTargets?: SloTargets;
 }
 
 export interface SystemPattern {

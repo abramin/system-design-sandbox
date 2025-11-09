@@ -5,6 +5,7 @@ import type {
   ScenarioEvent,
   NodeHealthStatus,
   CapacityUsage,
+  SloTargets,
 } from "../types/system";
 
 export interface NodeInsight {
@@ -24,6 +25,8 @@ interface MetricsDashboardProps {
   nodeInsights: NodeInsight[];
   trafficProfile: TrafficProfile;
   scenarioEvents: ScenarioEvent[];
+  sloTargets: SloTargets;
+  onUpdateSloTargets: (next: SloTargets) => void;
 }
 
 const statusOrder: NodeHealthStatus[] = ["healthy", "degraded", "down"];
@@ -160,6 +163,8 @@ export default function MetricsDashboard({
   nodeInsights,
   trafficProfile,
   scenarioEvents,
+  sloTargets,
+  onUpdateSloTargets,
 }: MetricsDashboardProps) {
   const statusCounts = useMemo(() => {
     return nodeInsights.reduce(
@@ -195,6 +200,22 @@ export default function MetricsDashboard({
 
   const totalNodes = nodeInsights.length || 1;
   const healthyPercent = (statusCounts.healthy / totalNodes) * 100;
+  const latencyBreached = summary ? summary.avgLatencyMs > sloTargets.latencyMs : false;
+  const errorBreached = summary ? summary.errorRate > sloTargets.errorRate : false;
+  const sloSuggestions: string[] = [];
+  if (latencyBreached) {
+    sloSuggestions.push("Avg latency exceeds target. Scale services, add caching, or reduce fan-out.");
+  }
+  if (errorBreached) {
+    sloSuggestions.push("Error budget exceeded. Add redundancy, improve retries, or stabilize downstream tiers.");
+  }
+  const handleSloChange = (field: keyof SloTargets, value: number) => {
+    const next = {
+      ...sloTargets,
+      [field]: Number.isFinite(value) ? Math.max(0, value) : sloTargets[field],
+    };
+    onUpdateSloTargets(next);
+  };
   const qpsTrend = useMemo(
     () =>
       buildTrendSeries(
@@ -299,6 +320,59 @@ export default function MetricsDashboard({
           unit=" %"
           gradient={{ from: "#f97316", to: "#fed7aa" }}
         />
+      </section>
+
+      <section className="metrics-slo">
+        <div className={`slo-card ${latencyBreached || errorBreached ? "slo-card-alert" : ""}`}>
+          <header>
+            <div>
+              <p className="slo-eyebrow">Service Level Objectives</p>
+              <h3>Latency & Error Budgets</h3>
+            </div>
+            <div className="slo-inputs">
+              <label>
+                Avg Latency (ms)
+                <input
+                  type="number"
+                  value={sloTargets.latencyMs}
+                  min={0}
+                  onChange={(e) => handleSloChange("latencyMs", Number(e.target.value))}
+                />
+              </label>
+              <label>
+                Error Rate (%)
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={(sloTargets.errorRate * 100).toFixed(2)}
+                  onChange={(e) => handleSloChange("errorRate", Number(e.target.value) / 100)}
+                />
+              </label>
+            </div>
+          </header>
+          <div className="slo-status">
+            <div className={`slo-indicator ${latencyBreached ? "bad" : "good"}`}>
+              <strong>{summary ? formatMs(summary.avgLatencyMs) : "–"}</strong>
+              <span>Average latency (target {sloTargets.latencyMs} ms)</span>
+            </div>
+            <div className={`slo-indicator ${errorBreached ? "bad" : "good"}`}>
+              <strong>
+                {summary ? formatPercent(summary.errorRate) : "–"}
+              </strong>
+              <span>Error rate (target {(sloTargets.errorRate * 100).toFixed(2)}%)</span>
+            </div>
+          </div>
+          {sloSuggestions.length > 0 ? (
+            <ul className="slo-suggestions">
+              {sloSuggestions.map((suggestion, index) => (
+                <li key={index}>{suggestion}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="slo-success">SLOs are on track. Keep monitoring trends.</p>
+          )}
+        </div>
       </section>
 
       <section className="metrics-panels">
