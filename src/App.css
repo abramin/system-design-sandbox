@@ -19,6 +19,30 @@
   cursor: pointer;
 }
 
+.small-screen-banner {
+  display: none;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.15), rgba(249, 115, 22, 0.15));
+  border-bottom: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fef3c7;
+  padding: 10px 18px;
+  box-sizing: border-box;
+}
+
+.small-screen-banner strong {
+  display: block;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.small-screen-banner p {
+  margin: 0;
+  font-size: 12px;
+  color: #fed7aa;
+}
+
 .layout-group {
   display: flex;
   align-items: center;
@@ -1940,6 +1964,119 @@
   margin: 0 0 16px;
   line-height: 1.65;
   color: #cbd5f5;
+}
+
+@media (max-width: 1280px) {
+  .app-layout {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .app-shell .app-layout {
+    height: auto;
+  }
+
+  .layout-controls {
+    overflow-x: auto;
+    padding-bottom: 16px;
+  }
+
+  .component-panel,
+  .pattern-panel-wrapper,
+  .traffic-panel-wrapper,
+  .labs-panel-wrapper,
+  .scenario-panel-wrapper,
+  .right-sidebar {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    max-height: 360px;
+    flex: 1 1 100%;
+  }
+
+  .canvas-container {
+    order: 10;
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .view-toggle {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .layout-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .layout-group {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .small-screen-banner {
+    display: block;
+  }
+
+  .component-panel,
+  .pattern-panel-wrapper,
+  .traffic-panel-wrapper,
+  .labs-panel-wrapper,
+  .scenario-panel-wrapper,
+  .right-sidebar {
+    max-height: none;
+  }
+
+  .canvas-container {
+    min-height: 360px;
+  }
+
+  .metrics-dashboard,
+  .coach-view,
+  .guide-page {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .layout-controls {
+    padding: 12px;
+  }
+
+  .template-trigger,
+  .control-pill,
+  .labs-highlight button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .template-actions {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .template-actions button {
+    flex: 1 1 calc(50% - 8px);
+  }
+
+  .view-toggle button {
+    flex: 1 1 calc(50% - 6px);
+  }
 }
 
 .guide-page {

@@ -1430,11 +1430,17 @@ const adjacencyById = useMemo(() => {
               >
                 Guide
               </button>
-            </div>
-          </header>
-          {activeView === "builder" && (
-            <>
-      <BuilderToolbar
+        </div>
+      </header>
+      <div className="small-screen-banner">
+        <div>
+          <strong>Best on large screens</strong>
+          <p>Compact mode is enabled so you can still explore on phones and tablets.</p>
+        </div>
+      </div>
+      {activeView === "builder" && (
+        <>
+          <BuilderToolbar
         templateMenuOpen={templateMenuOpen}
         templateMenuRef={templateMenuRef}
         templatePreview={templatePreview}
