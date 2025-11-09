@@ -59,3 +59,11 @@ The Coach tab can talk to either a **local** model or an **external API**:
 - Built with [Vite](https://vitejs.dev) + React 18 + TypeScript.
 - ESLint config lives in `eslint.config.js`. For type-aware linting, enable `tseslint.configs.recommendedTypeChecked` as described in-file and optionally add React plugins (e.g., `eslint-plugin-react-x`).
 - Styles live in `src/App.css`; domain-specific logic is organized under `src/features/system-designer`.
+
+
+ ## Screenshots
+
+ 
+<img width="1709" height="1079" alt="Captura de pantalla 2025-11-09 a las 11 29 22" src="https://github.com/user-attachments/assets/eb1f8d3d-430c-4342-8883-0f4719f1a785" />
+<img width="1335" height="1019" alt="Captura de pantalla 2025-11-09 a las 11 28 49" src="https://github.com/user-attachments/assets/7e72bf33-b1ee-45af-a506-833442590eca" />
+<img width="1704" height="933" alt="Captura de pantalla 2025-11-09 a las 11 28 41" src="https://github.com/user-attachments/assets/55641d08-7aa2-4ff5-b07a-eee6d015cfef" />
