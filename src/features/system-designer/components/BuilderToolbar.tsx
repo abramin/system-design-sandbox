@@ -105,8 +105,8 @@ export function BuilderToolbar({
                 type="button"
                 key={template.id}
                 className={`template-option ${templatePreviewId === template.id ? "active" : ""}`}
-                onMouseEnter={() => onTemplatePreviewChange(template.id)}
-                onFocus={() => onTemplatePreviewChange(template.id)}
+                onMouseEnter={!isMobile ? () => onTemplatePreviewChange(template.id) : undefined}
+                onFocus={!isMobile ? () => onTemplatePreviewChange(template.id) : undefined}
                 onClick={() => onSelectTemplate(template.id)}
               >
                 <span className="template-option-name">{template.name}</span>

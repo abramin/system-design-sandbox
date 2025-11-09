@@ -99,13 +99,13 @@ export function SystemDesigner() {
     });
     return defaults;
   });
-  const [showLeftPanel, setShowLeftPanel] = useState(true);
-  const [showScenarioPanel, setShowScenarioPanel] = useState(true);
-  const [showPatternPanel, setShowPatternPanel] = useState(true);
-  const [showTrafficPanel, setShowTrafficPanel] = useState(true);
+  const [showLeftPanel, setShowLeftPanel] = useState(false);
+  const [showScenarioPanel, setShowScenarioPanel] = useState(false);
+  const [showPatternPanel, setShowPatternPanel] = useState(false);
+  const [showTrafficPanel, setShowTrafficPanel] = useState(false);
   const [showLabsPanel, setShowLabsPanel] = useState(false);
-  const [showDependencyInsights, setShowDependencyInsights] = useState(true);
-  const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(true);
+  const [showDependencyInsights, setShowDependencyInsights] = useState(false);
+  const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(() => detectTouchDevice());
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === "undefined") return false;
