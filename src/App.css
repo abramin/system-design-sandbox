@@ -17,6 +17,19 @@
 
 .layout-controls button {
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.view-toggle button,
+.template-option,
+.component-item,
+.control-pill,
+.template-actions button,
+.pattern-card button,
+.labs-highlight button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .small-screen-banner {
@@ -2076,6 +2089,16 @@
 
   .view-toggle button {
     flex: 1 1 calc(50% - 6px);
+  }
+}
+
+@media (hover: none) {
+  .component-item {
+    cursor: pointer;
+  }
+
+  .component-item:active {
+    cursor: pointer;
   }
 }
 

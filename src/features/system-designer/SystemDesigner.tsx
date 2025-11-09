@@ -50,6 +50,16 @@ let scenarioEventIdCounter = 1;
 let edgeIdCounter = 1;
 let nodeIdCounter = 4;
 
+const detectTouchDevice = () => {
+  if (typeof window === "undefined") return false;
+  const navigatorInfo = window.navigator as Navigator & { msMaxTouchPoints?: number };
+  return (
+    "ontouchstart" in window ||
+    navigatorInfo.maxTouchPoints > 0 ||
+    !!navigatorInfo.msMaxTouchPoints
+  );
+};
+
 interface WhatIfInsight {
   id: string;
   scenarioTitle: string;
@@ -96,6 +106,7 @@ export function SystemDesigner() {
   const [showLabsPanel, setShowLabsPanel] = useState(false);
   const [showDependencyInsights, setShowDependencyInsights] = useState(true);
   const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(true);
+  const [isTouchDevice, setIsTouchDevice] = useState(() => detectTouchDevice());
   const { sloTargets, setSloTargets, handleUpdateSloTargets } = useSloTargets();
   const [labProgress, setLabProgress] = useState<Record<string, boolean>>(() => {
     if (typeof window === "undefined") return {};
@@ -112,6 +123,18 @@ export function SystemDesigner() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LAB_PROGRESS_STORAGE_KEY, JSON.stringify(labProgress));
   }, [labProgress]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => {
+      setIsTouchDevice(detectTouchDevice());
+    };
+    window.addEventListener("orientationchange", handleResize);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("orientationchange", handleResize);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   const handleToggleLabStep = useCallback((stepId: string) => {
     setLabProgress((prev) => {
@@ -679,6 +702,23 @@ export function SystemDesigner() {
     event.dataTransfer.setData("application/reactflow", nodeType);
     event.dataTransfer.effectAllowed = "move";
   };
+
+  const handleQuickAddComponent = useCallback(
+    (label: string) => {
+      const newNode: Node = {
+        id: `${nodeIdCounter++}`,
+        type: "custom",
+        position: { x: 0, y: 0 },
+        data: { label, config: getDefaultConfig(label) },
+      };
+      setNodes((prevNodes) => {
+        const nextNodes = prevNodes.concat(newNode);
+        const { width, height } = computeAvailableDimensions(showLeftPanel, showScenarioPanel);
+        return layoutNodesWithFlow(nextNodes, edges, width, height);
+      });
+    },
+    [edges, showLeftPanel, showScenarioPanel, setNodes]
+  );
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
@@ -1385,6 +1425,25 @@ const adjacencyById = useMemo(() => {
     custom: CustomNode,
   };
 
+  const handlePaletteItemClick = useCallback(
+    (label: string) => {
+      if (isTouchDevice) {
+        handleQuickAddComponent(label);
+      }
+    },
+    [handleQuickAddComponent, isTouchDevice]
+  );
+
+  const handlePaletteKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>, label: string) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handleQuickAddComponent(label);
+      }
+    },
+    [handleQuickAddComponent]
+  );
+
   return (
     <NodeConfigureContext.Provider value={handleNodeConfigure}>
       <NodeRenameContext.Provider value={handleNodeRename}>
@@ -1501,13 +1560,21 @@ const adjacencyById = useMemo(() => {
                         {category.description && <p className="accordion-description">{category.description}</p>}
                         <div className="component-list">
                           {category.items.map((component) => (
-                            <div
-                              key={component.type}
-                              className="component-item"
-                              draggable
-                              onDragStart={(event) => onDragStart(event, component.label)}
-                              title={`${component.label} (${category.name})`}
-                            >
+                              <div
+                                key={component.type}
+                                className="component-item"
+                                role="button"
+                                tabIndex={0}
+                                draggable={!isTouchDevice}
+                                onDragStart={
+                                  !isTouchDevice
+                                    ? (event) => onDragStart(event, component.label)
+                                    : undefined
+                                }
+                                onClick={() => handlePaletteItemClick(component.label)}
+                                onKeyDown={(event) => handlePaletteKeyDown(event, component.label)}
+                                title={`${component.label} (${category.name})`}
+                              >
                               {component.label}
                             </div>
                           ))}
