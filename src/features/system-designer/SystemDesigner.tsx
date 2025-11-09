@@ -22,6 +22,7 @@ import type {
 } from "../../types/system";
 import ConfigPanel from "./components/ConfigPanel";
 import CustomNode from "./components/CustomNode";
+import GuidedLabsPanel, { type GuidedLab } from "./components/GuidedLabsPanel";
 import { defaultTrafficProfile, defaultLatencies, DEFAULT_REQUESTS_PER_USER_PER_DAY, CAPACITY_NONE } from "./constants/defaults";
 import { NodeConfigureContext, NodeRenameContext } from "./context/node-config";
 import {
@@ -89,8 +90,44 @@ export function SystemDesigner() {
   const [showScenarioPanel, setShowScenarioPanel] = useState(true);
   const [showPatternPanel, setShowPatternPanel] = useState(true);
   const [showTrafficPanel, setShowTrafficPanel] = useState(true);
+  const [showLabsPanel, setShowLabsPanel] = useState(false);
   const [showDependencyInsights, setShowDependencyInsights] = useState(true);
   const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(true);
+  const [labProgress, setLabProgress] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(LAB_PROGRESS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return typeof parsed === "object" && parsed ? (parsed as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LAB_PROGRESS_STORAGE_KEY, JSON.stringify(labProgress));
+  }, [labProgress]);
+
+  const handleToggleLabStep = useCallback((stepId: string) => {
+    setLabProgress((prev) => {
+      const next = { ...prev };
+      next[stepId] = !next[stepId];
+      return next;
+    });
+  }, []);
+
+  const handleMarkLabComplete = useCallback((labId: string) => {
+    const lab = guidedLabs.find((entry) => entry.id === labId);
+    if (!lab) return;
+    setLabProgress((prev) => {
+      const next = { ...prev };
+      lab.steps.forEach((step) => {
+        next[step.id] = true;
+      });
+      return next;
+    });
+  }, []);
   const [activeView, setActiveView] = useState<"builder" | "metrics" | "coach" | "guide">("builder");
   const loadTemplate = useCallback(
     (templateId: string) => {
@@ -316,6 +353,14 @@ export function SystemDesigner() {
   );
 
   const resetCanvas = useCallback(() => {
+    if (nodes.length > 0) {
+      const confirmed = window.confirm(
+        "Clear canvas? All nodes, edges, and unsaved changes will be lost."
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
     setNodes([]);
     setEdges([]);
     nodeIdCounter = 1;
@@ -323,7 +368,7 @@ export function SystemDesigner() {
     setSelectedNode(null);
     setSelectedEdgeId(null);
     setCurrentTemplateId(null);
-  }, []);
+  }, [nodes]);
 
   const handleAutoArrange = useCallback(() => {
     setNodes((prevNodes) => {
@@ -1377,7 +1422,7 @@ const adjacencyById = useMemo(() => {
           {activeView === "builder" && (
             <>
       <div className="layout-controls">
-        <div className="layout-controls-left">
+        <div className="layout-group template-group">
           <div className="template-menu" ref={templateMenuRef}>
             <button
               type="button"
@@ -1421,7 +1466,8 @@ const adjacencyById = useMemo(() => {
               </button>
             </div>
           </div>
-          <div className="panel-toggle-group">
+        </div>
+        <div className="layout-group management-group">
             <button
               type="button"
               className="control-pill"
@@ -1473,11 +1519,26 @@ const adjacencyById = useMemo(() => {
             <button type="button" className="control-pill" onClick={handleAutoArrange}>
               Auto Arrange
             </button>
-            <button type="button" className="control-pill" data-active="false" onClick={resetCanvas}>
-              Clear Canvas
-            </button>
-          </div>
         </div>
+        <div className="layout-group labs-highlight">
+          <span className="labs-chip">Labs</span>
+          <button
+            type="button"
+            className={`control-pill ${showLabsPanel ? "active" : ""}`}
+            data-active={showLabsPanel}
+            onClick={() => setShowLabsPanel((prev) => !prev)}
+          >
+            {showLabsPanel ? "Hide" : "Show"} Guided Labs
+          </button>
+        </div>
+        <button
+          type="button"
+          className="control-pill warning"
+          data-active="false"
+          onClick={resetCanvas}
+        >
+          Clear Canvas
+        </button>
       </div>
       {connectionError && <div className="connection-error">{connectionError}</div>}
       <div className="app-layout">
@@ -1562,6 +1623,16 @@ const adjacencyById = useMemo(() => {
               profile={trafficProfile}
               onProfileChange={handleTrafficProfileChange}
               onApplyProfile={handleApplyTrafficProfile}
+            />
+          </aside>
+        )}
+        {showLabsPanel && (
+          <aside className="labs-panel-wrapper">
+            <GuidedLabsPanel
+              labs={guidedLabs}
+              progress={labProgress}
+              onToggleStep={handleToggleLabStep}
+              onMarkLabComplete={handleMarkLabComplete}
             />
           </aside>
         )}
@@ -1808,6 +1879,84 @@ const componentCategories = [
     ],
   },
 ];
+
+const guidedLabs: GuidedLab[] = [
+  {
+    id: "lab-write-buffer",
+    title: "Add a write buffer",
+    goal: "Protect a primary database from bursty writes by inserting a queue and workers.",
+    difficulty: "easy",
+    steps: [
+      {
+        id: "lab-write-buffer-step1",
+        title: "Insert a queue",
+        description: "Place a Queue node between the public Service/API layer and your Database.",
+        hint: "Drag a Queue next to the database and connect Service → Queue → Database.",
+      },
+      {
+        id: "lab-write-buffer-step2",
+        title: "Configure queue throughput",
+        description:
+          "Open the Queue config and set throughput/processing to at least 20% higher than current write QPS.",
+      },
+      {
+        id: "lab-write-buffer-step3",
+        title: "Add workers",
+        description: "Create a new Service node (Workers) after the queue to fan-in batched writes to the DB.",
+        hint: "Name it \"Write Workers\" and connect Queue → Workers → Database.",
+      },
+    ],
+  },
+  {
+    id: "lab-read-write-split",
+    title: "Split reads and writes",
+    goal: "Scale read-heavy workloads by separating write traffic from replicated readers.",
+    difficulty: "medium",
+    steps: [
+      {
+        id: "lab-rw-step1",
+        title: "Add read replicas",
+        description: "Duplicate the Database node or configure the DB to have at least 2 replicas.",
+      },
+      {
+        id: "lab-rw-step2",
+        title: "Introduce a read router",
+        description:
+          "Add either a Service Mesh node or a custom router that directs reads to replicas and writes to primary.",
+      },
+      {
+        id: "lab-rw-step3",
+        title: "Update configs",
+        description:
+          "For the database, enable readWriteSplit or document how the router handles read/write targets.",
+      },
+    ],
+  },
+  {
+    id: "lab-cache-hot-path",
+    title: "Cache the hot path",
+    goal: "Reduce p95 latency by caching the most expensive read path.",
+    difficulty: "medium",
+    steps: [
+      {
+        id: "lab-cache-step1",
+        title: "Place a cache near the service",
+        description: "Add a Cache node between the Service and your data store (DB/Search).",
+      },
+      {
+        id: "lab-cache-step2",
+        title: "Tune TTL and hit rate",
+        description: "Configure the cache with a TTL and hit rate assumptions; aim for ≥85% hit rate.",
+      },
+      {
+        id: "lab-cache-step3",
+        title: "Add an invalidation path",
+        description: "Connect write flows (e.g., Service or Queue) to refresh/invalidate the cache on mutations.",
+      },
+    ],
+  },
+];
+const LAB_PROGRESS_STORAGE_KEY = "sysdesign-sandbox:labs-progress";
 
 const nodeCategoryMap: Record<string, string> = {
   User: "Clients & Entry",

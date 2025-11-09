@@ -121,7 +121,7 @@ export function CustomNode({ data, selected, id }: NodeProps) {
       data-status={nodeStatus}
       data-flow-state={flowState || "none"}
     >
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Top} className="node-handle node-handle-target" />
       <div className="node-header">
         <span className={`node-status node-status-${nodeStatus}`} />
         <div className="node-icon">
@@ -334,7 +334,7 @@ export function CustomNode({ data, selected, id }: NodeProps) {
           </span>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Bottom} className="node-handle node-handle-source" />
     </div>
   );
 }
