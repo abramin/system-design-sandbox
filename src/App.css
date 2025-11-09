@@ -142,11 +142,6 @@
   border-color: rgba(55, 65, 81, 0.6);
 }
 
-.control-pill:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.5);
-}
-
 .control-pill:active {
   transform: translateY(0);
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.35);
@@ -202,11 +197,6 @@
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
 }
 
-.template-trigger:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.45);
-}
-
 .template-dropdown {
   position: absolute;
   top: calc(100% + 8px);
@@ -239,7 +229,6 @@
   transition: background 0.2s ease, transform 0.2s ease;
 }
 
-.template-option:hover,
 .template-option:focus,
 .template-option.active {
   background: rgba(37, 99, 235, 0.2);
@@ -309,10 +298,6 @@
   box-shadow: 0 12px 26px rgba(37, 99, 235, 0.35);
 }
 
-.flow-trigger:hover {
-  transform: translateY(-1px);
-}
-
 .flow-trigger-label {
   font-size: 12px;
   font-weight: 600;
@@ -362,7 +347,6 @@
   transition: background 0.2s ease, transform 0.2s ease;
 }
 
-.flow-option:hover,
 .flow-option:focus,
 .flow-option.active {
   background: rgba(59, 130, 246, 0.35);
@@ -372,12 +356,6 @@
 .flow-option.disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.flow-option.disabled:hover,
-.flow-option.disabled:focus {
-  background: rgba(30, 41, 59, 0.9);
-  transform: none;
 }
 
 .flow-option-main {
@@ -1095,13 +1073,6 @@
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.4);
 }
 
-.component-item:hover {
-  background-color: rgba(59, 130, 246, 0.2);
-  border-color: #38bdf8;
-  box-shadow: 0 12px 24px rgba(56, 189, 248, 0.35);
-  transform: translateY(-1px);
-}
-
 .component-item:active {
   cursor: grabbing;
   transform: translateY(0);
@@ -1222,11 +1193,6 @@
   }
 }
 
-.react-flow__edge:hover .react-flow__edge-path {
-  stroke-width: 3;
-  cursor: pointer;
-}
-
 /* Animated edge styling */
 .react-flow__edge.animated .react-flow__edge-path {
   stroke: #007bff;
@@ -1287,12 +1253,6 @@
 .custom-node[data-type="Database"] { border-color: #6366f1; }
 .custom-node[data-type="Search Index"] { border-color: #0ea5e9; }
 .custom-node[data-type="Object Storage"] { border-color: #f97316; }
-
-
-.custom-node:hover {
-  border-color: #007bff;
-  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2);
-}
 
 .custom-node.selected {
   border-color: #007bff;
@@ -1391,11 +1351,6 @@
   transition: background 0.2s ease, color 0.2s ease;
 }
 
-.node-label-edit-button:hover {
-  background: #f0f0f0;
-  color: #111;
-}
-
 .node-label-input {
   width: 100%;
   border: 1px solid #cbd5f5;
@@ -1427,11 +1382,6 @@
   position: relative;
   z-index: 10;
   pointer-events: auto;
-}
-
-.node-configure-button:hover {
-  background: #f0f0f0;
-  transform: scale(1.1);
 }
 
 .node-configure-button:active {
@@ -1639,11 +1589,6 @@
   transition: all 0.2s ease;
 }
 
-.config-close:hover {
-  background: #f0f0f0;
-  color: #333;
-}
-
 .config-content {
   padding: 20px;
   overflow-y: auto;
@@ -1735,20 +1680,10 @@
   transition: all 0.2s ease;
 }
 
-.config-button:hover {
-  background: #f8f9fa;
-  border-color: #d0d0d0;
-}
-
 .config-button-primary {
   background: #007bff;
   color: white;
   border-color: #007bff;
-}
-
-.config-button-primary:hover {
-  background: #0056b3;
-  border-color: #0056b3;
 }
 
 /* Metrics Panel Styling */
@@ -1901,10 +1836,6 @@
   box-shadow: 0 10px 25px rgba(14, 165, 233, 0.35);
 }
 
-.view-toggle button:hover:not(.active) {
-  background: rgba(15, 23, 42, 0.5);
-}
-
 .app-shell .layout-controls {
   background: #ffffff;
   padding: 12px 24px;
@@ -1977,6 +1908,84 @@
   margin: 0 0 16px;
   line-height: 1.65;
   color: #cbd5f5;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .control-pill:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.5);
+  }
+
+  .template-trigger:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.45);
+  }
+
+  .template-option:hover {
+    background: rgba(37, 99, 235, 0.2);
+    transform: translateX(2px);
+  }
+
+  .flow-trigger:hover {
+    transform: translateY(-1px);
+  }
+
+  .flow-option:hover {
+    background: rgba(59, 130, 246, 0.35);
+    transform: translateX(3px);
+  }
+
+  .flow-option.disabled:hover {
+    background: rgba(30, 41, 59, 0.9);
+    transform: none;
+  }
+
+  .component-item:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+    border-color: #38bdf8;
+    box-shadow: 0 12px 24px rgba(56, 189, 248, 0.35);
+    transform: translateY(-1px);
+    cursor: grab;
+  }
+
+  .react-flow__edge:hover .react-flow__edge-path {
+    stroke-width: 3;
+    cursor: pointer;
+  }
+
+  .custom-node:hover {
+    border-color: #007bff;
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2);
+  }
+
+  .node-label-edit-button:hover {
+    background: #f0f0f0;
+    color: #111;
+  }
+
+  .node-configure-button:hover {
+    background: #f0f0f0;
+    transform: scale(1.1);
+  }
+
+  .config-close:hover {
+    background: #f0f0f0;
+    color: #333;
+  }
+
+  .config-button:hover {
+    background: #f8f9fa;
+    border-color: #d0d0d0;
+  }
+
+  .config-button-primary:hover {
+    background: #0056b3;
+    border-color: #0056b3;
+  }
+
+  .view-toggle button:hover:not(.active) {
+    background: rgba(15, 23, 42, 0.5);
+  }
 }
 
 @media (max-width: 1280px) {
