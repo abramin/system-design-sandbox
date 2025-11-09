@@ -1,147 +1,120 @@
 # System Design Sandbox Guide
 
-This guide walks through the core workflows in the System Design Sandbox app so you can quickly model architectures, stress them, and interpret the resulting insights.
+Model distributed systems, inject failures, and narrate outcomes with a single playground. This guide walks through every surface area—canvas controls, panels, labs, coach, analytics, and template sharing—so you can demonstrate full scenarios quickly.
 
-## Prerequisites & Setup
+---
 
-- Node.js 18+ (ensure `node -v` reports a compatible version).
-- Install dependencies once with:
+## 1. Prerequisites & Setup
 
-  ```bash
-  npm install
-  ```
+1. Install Node.js 18+ (`node -v` to verify).
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+4. Open the printed URL (default `http://localhost:5173`). The UI hot-reloads as you edit the repo.
 
-- Start the dev server when you are ready to experiment:
+---
 
-  ```bash
-  npm run dev
-  ```
+## 2. Layout Controls at a Glance
 
-  The CLI prints the local URL (usually `http://localhost:5173`). Open it in a browser; the app hot-reloads as you edit.
+The toolbar above the canvas centralizes all management actions:
 
-## 1. Build With the Design Canvas
+- **Load Examples** – Opens curated templates. Adjacent actions export/import JSON snapshots; the file stores nodes, edges, configs, positions, and current SLO targets.
+- **Panel Toggles** – Show/hide the Component Library, Pattern drawer, Traffic Profile, Scenario panel, Guided Labs, Dependency Heatmap & Ripple Effects, and What-if Insights to suit your workflow.
+- **Auto Arrange** – Reflows every node with extra spacing, useful after importing or large edits.
+- **Inline SLO Inputs** – Adjust systemwide latency (ms) and error (%) targets directly from the builder; they sync instantly with the Metrics Board’s SLO card.
+- **Guided Labs Toggle** – Highlights the labs sidebar so you can follow step-by-step exercises without leaving the canvas.
+- **Clear Canvas** – Wipes the board after a confirmation warning so you never lose work accidentally.
 
-1. **Load a starting point**
-   - Use *Load Template* to pick one of the baked-in topologies or import a JSON file exported from a previous session (see `custom-template.json` for the schema).
-   - Export at any point to snapshot the current node/edge graph and share it with teammates.
-2. **Place components**
-   - Drag tiles from the palette onto the canvas. Each node’s type (e.g., *API Gateway*, *Database*, *Cache*) drives default configs and icons.
-3. **Wire connections**
-   - Drag from a node handle to another node to create an edge. Double-click an edge to flip its direction; select + Delete/Backspace removes it.
-4. **Configure nodes**
-   - Double-click a node or tap the `⚙️` icon to open the configuration panel. Key fields—`maxConnections`, `throughputRate`, `storageGB`, `instances`, latency/error overrides—feed every downstream calculation (capacity, cost, what-if).
-5. **Rename for clarity**
-   - Provide a display label (e.g., “Checkout API”). The underlying type must stay accurate (keep “Service”, “Database”, etc.) so analytics remain correct.
+---
 
-### Example: Expanding the Basic Template
+## 3. Building With Components & Patterns
 
-1. Load `custom-template.json` (User → API Gateway → Database).
-2. Add a *Service* node between the gateway and database; connect edges accordingly.
-3. Configure the Service with:
-   - `instances = 6`
-   - `maxConnections = 1200`
-   - `latencyMs = 35`
-4. Configure the Database with `maxConnections = 900` and `storageGB = 1000`.
-5. Notice the capacity badges on each node update immediately—green when under 75%, amber above 75%, red above 90%.
+1. **Component Library** – Drag nodes (User, CDN, Load Balancer, Service, Cache, Queue, Database, etc.) from the left panel. Types control iconography and default configs.
+2. **Patterns Drawer** – Drop pre-wired motifs (cache-aside, dual-write, async workers, analytics fan-out) to bootstrap common topologies. They land as normal nodes you can reconfigure.
+3. **Connections** – Drag from the enlarged connection handles on a source node to a target. Edges animate to indicate direction; select an edge to edit labels or delete.
+4. **Node Configuration** – Click the ⚙️ icon on a node to set throughput, max connections, latency, error budgets, storage, cost, or instance counts. These numbers drive capacity usage, What-if calculations, and scenario impact.
+5. **Display Labels** – Rename nodes (e.g., “Checkout API”) while retaining the underlying type so analytics remain accurate.
 
-## 2. Shape Demand With Traffic Profiles
+---
 
-- Open *Traffic Profile* from the right sidebar.
-- Controls:
-  - **Base DAUs** and **Requests/User/Day** (fixed constant in code) derive baseline QPS.
-  - **Peak %** and **Bursts** overlay surges (each burst=multiplier + duration seconds).
-  - **Read/Write ratio** splits load for caches/datastores.
-- Press *Apply Profile* to propagate changes into node metrics (QPS, bandwidth, queue depth, storage estimates).
+## 4. Shape Demand With the Traffic Panel
 
-### Quick Test
+- Open the **Traffic Profile** panel to tune Base DAUs, peak percentage, read/write ratio, payload size, and named burst events (multiplier + duration).
+- Click **Apply Profile** to push the new profile into the graph. Every connected node recalculates QPS, bandwidth, queue depth, and storage estimates instantly.
+- Combine traffic tweaks with inline SLO edits to see how much headroom remains before you even run scenarios.
 
-Set `baseDAUs` to `2,500,000` and create a burst `Promo Push` with multiplier `3.0` for `1200s`. Apply and watch total QPS + bandwidth jump in the Metrics Board (see §4).
+---
 
-## 3. Simulate Incidents With Scenarios
+## 5. Scenarios, What-if, & Dependency Heatmap
 
-- Open *Scenarios* (right sidebar).
-- Create an event:
-  1. Choose a target node.
-  2. Pick an event type:
-     - `Outage` → forces status down, zero throughput.
-     - `Latency Spike` → multiplies latency.
-     - `Error Spike` → adds failure rate.
-     - `Throttle` → reduces throughput capacity.
-  3. Set severity (0–100), duration, optional note, and start offset.
-- Press *Add Event*, then *Play* to start the scenario clock. Events auto-trigger once their `startTime` arrives; use *Trigger* next to an event to force immediate execution.
-- While an event is active, the affected node’s status is reflected everywhere:
-  - Node tiles badge as degraded/down.
-  - Metrics Board updates `activeIncidents`, error rate, etc.
+### Scenario Panel
+- Add incidents targeting any node: Outage (down), Latency Spike, Error Spike, or Throttle.
+- Configure severity, duration, and start offset; queue multiple events and hit **Play** to advance the scenario clock, or **Trigger** to fire immediately.
+- As incidents run, node badges change (healthy/degraded/down), capacity usage adjusts, and scenario events appear in the Metrics Board timeline.
 
-### Example: Latency Spike Drill
+### What-if Insights
+- Lives in its own sidebar, independent from the Scenario panel.
+- Continuously stress-tests services (cache-miss storms, queue overruns, worker slowdowns) using your live configs and traffic profile.
+- Cards show the predicted metric delta, downstream components that would exceed capacity, and suggested mitigations (scale out, add caching, adjust replication).
 
-1. Target the Service node created earlier.
-2. Choose **Latency Spike**, severity `60`, duration `120s`.
-3. Hit *Play* and *Trigger*.
-4. Observe:
-   - Service latency increases (node badge + flow step info).
-   - Downstream Database capacity usage rises because QPS shifts.
+### Dependency Heatmap & Ripple Effects
+- Toggle the heatmap to rank upstream/downstream links by saturation.
+- Ripple cards list “blast radius” paths so you know which services inherit load when a dependency degrades—perfect for validating buffers before drills.
 
-## 4. Read the Metrics Board
+---
 
-Switch the top toggle to **Metrics Board** for an aggregate view:
+## 6. Guided Labs
 
-- **Summary tiles**: Total QPS, Avg/P95 latency, Error rate, Monthly cost, Active incidents.
-- **Sparklines**: QPS trend, Latency pulse, Error budget—generated from live metrics and scenario count.
-- **Operational Health**: Gauge plus counts of healthy/degraded/down nodes.
-- **Capacity Hotspots / Cost Drivers / Latency Hotspots**: sortable quick lists of problem nodes.
-- **Scenario Timeline**: Upcoming and in-progress injected incidents.
-- **Traffic Profile**: Visual of burst multipliers currently in effect.
+- Enable the **Guided Labs** sidebar from the toolbar.
+- Each lab contains a narrative plus a checklist (e.g., “Add a write buffer”, “Split reads and writes”, “Introduce a queue + worker tier”).
+- Checkboxes persist in `localStorage`, so you can return later and continue where you left off.
+- Labs encourage hands-on practice: complete the steps directly on the canvas, then run What-if/Scenario drills to verify the intended resilience pattern.
 
-Use this board when presenting: the cards explain where saturation or spend is emerging without diving back into each node.
+---
 
-## 5. Interpret What-if Insights
+## 7. Coach & Push to Canvas
 
-When at least one node of type `Service` exists, a **What-if Insights** panel appears in the builder sidebar:
+- Switch to the **Coach** view to role-play design interviews or system critiques with an LLM.
+- Configure the base URL and model (local LLaMA via Ollama, remote endpoint, etc.). *Never paste sensitive API keys unless you understand the security trade-offs.*
+- Share your current architecture context, ask the coach for feedback, and iterate in the chat.
+- When the coach proposes a topology, click **Push to Design Canvas** to apply the generated nodes/edges back into the builder for further editing.
 
-1. The sandbox imagines a fixed scenario: “Service latency +50%”.
-2. For the top three Service nodes it:
-   - Calculates the additional latency delta.
-   - Recomputes each direct downstream node with +20% load to see if any exceed 95% of their configured capacity.
-3. Cards list any saturated downstream components plus mitigation tips (e.g., “Add read replicas”, “Scale cache nodes”).
+---
 
-Use this panel to sanity-check buffer margins even before running custom scenarios. If nothing changes, ensure:
+## 8. Metrics Board & SLO Tracking
 
-- The node’s type remains “Service”.
-- Downstream configs set realistic `maxConnections`/`throughputRate`.
-- Traffic profile generates non-zero QPS.
+- Use the top-level toggle to open **Metrics Board** for presentation-ready analytics:
+  - **Summary tiles** – Total QPS, avg/p95 latency, error rate, monthly cost, active incidents, bandwidth.
+  - **Sparklines** – QPS trend, latency pulse, error budget over time.
+  - **Operational Health** – Gauge and counts of healthy/degraded/down nodes.
+  - **Leaderboards** – Capacity hotspots, latency hotspots, highest monthly cost.
+  - **Scenario Timeline** – Monitors queued/active incidents.
+  - **Traffic Snapshot** – Visual of active bursts.
+- The **SLO card** pulls targets from the builder toolbar. If latency or error rates exceed your budget, the panel recommends mitigations (scale services, add caching, improve retries).
 
-## 6. Pattern Library & Circuit Breakers
+---
 
-- Open the *Pattern Library* sidebar to drop in reusable motifs such as cache-aside, fan-out, async worker queues, and analytics fan-out. Each pattern is just a pre-wired cluster of standard nodes you can edit afterward.
-- After dropping a pattern, tweak configs (e.g., increase queue throughput or cache storage) so it matches your workload.
-- Add *Circuit Breaker* nodes between services to model failover logic. Wire the breaker to both the primary and backup targets; when you simulate an outage on the primary, traffic should automatically route across the alternate edge.
-- Want to visualize the failover? Trigger an outage on the downstream dependency, then open the Metrics Board to verify the backup is now taking QPS while the breaker shows a degraded status.
+## 9. Templates, Import/Export, & Collaboration
 
-## 7. End-to-End Example
+- **Export Template** anytime to capture the entire state (nodes, edges, configs, display labels, positions, and SLO targets). Share via source control or chat.
+- **Import Template** to load someone else’s snapshot or a coach-generated design. The importer relays out the graph to avoid overlap and restores SLO budgets from the file.
+- **Guide/Coach Integration** – When the Coach generates a design, it uses the same template schema, so exporting later preserves those recommendations.
 
-The following mini-playbook ties the tools together:
+---
 
-1. **Model**  
-   - Load the basic template, add Service + Cache + Message Broker downstream of the API Gateway.
-   - Configure each component with capacity limits (Service `maxConnections=1000`, Cache `hitRate=85`, Broker `throughputRate=50,000 msg/s`).
-2. **Stress**  
-   - Traffic Profile: `baseDAUs=3,000,000`, `peakPercent=35`. Add bursts *Launch Day* (x2.5 for 1h) and *Evening Peak* (x1.8 for 40m).
-3. **Observe**  
-   - Metrics Board should now show multi-million QPS and highlight whichever component is closest to capacity.
-   - What-if panel predicts if downstream Databases or Queues will saturate when Service latency jumps.
-4. **Inject Failure**  
-   - Scenario: *Outage* on the Cache, severity 100, duration 300s.
-   - Play/trigger it; Service QPS now pounds the Database directly. Operational Health shows increased degraded nodes.
-5. **Iterate**  
-   - Add another Cache shard (set `instances=2`) or insert a Queue to absorb spikes. Re-run the scenario to confirm reduced saturation.
+## 10. Putting It All Together (Suggested Flow)
 
-## Tips & Troubleshooting
+1. Load a template (e.g., “Social Feed”) and rename key nodes for clarity.
+2. Use Guided Labs to add a write buffer + cache pattern while following the checklist.
+3. Adjust Traffic Profile (DAUs + bursts) and set stricter SLOs (e.g., 150 ms / 0.5%).
+4. Run What-if insights to see which downstream nodes are at risk; address them by scaling components or inserting queues.
+5. Script a Scenario: cache outage + service latency spike. Play it and watch dependency ripples.
+6. Switch to Metrics Board to confirm SLO compliance and capture screenshots for your review doc.
+7. Export the template, send it to a teammate, or continue iterating in the Coach tab before pushing refinements back onto the canvas.
 
-- **Unsaved changes**: Export templates liberally; JSON includes positions, configs, labels, and edges.
-- **No metrics updating**: Ensure Traffic Profile base DAUs > 0 and nodes remain connected so load can propagate.
-- **Scenario doesn’t fire**: Events only take effect after you press *Play*. Use *Trigger* to force immediate activation.
-- **What-if missing**: Requires at least one Service node. Check node type; renaming to another type removes it from analysis.
-- **Dirty state after large edits**: Refresh the browser tab—the app reloads from the initial template or the last import.
-
-With these workflows you can quickly storyboard a distributed system, articulate failure drills, and share evidence-based mitigation steps using the sandbox’s built-in analytics.
+With every feature—components, traffic modeling, scenarios, labs, coach, dependency analysis, and SLO-aware metrics—you can teach or evaluate system design trade-offs end-to-end in one place.
