@@ -46,6 +46,20 @@ let scenarioEventIdCounter = 1;
 let edgeIdCounter = 1;
 let nodeIdCounter = 4;
 
+interface WhatIfInsight {
+  id: string;
+  scenarioTitle: string;
+  scenarioDescription: string;
+  primaryLabel: string;
+  metricDeltaLabel: string;
+  saturatedDownstream: {
+    name: string;
+    usage: number;
+    suggestion: string;
+  }[];
+  suggestions: string[];
+}
+
 export function SystemDesigner() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -75,6 +89,8 @@ export function SystemDesigner() {
   const [showScenarioPanel, setShowScenarioPanel] = useState(true);
   const [showPatternPanel, setShowPatternPanel] = useState(true);
   const [showTrafficPanel, setShowTrafficPanel] = useState(true);
+  const [showDependencyInsights, setShowDependencyInsights] = useState(true);
+  const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(true);
   const [activeView, setActiveView] = useState<"builder" | "metrics" | "coach" | "guide">("builder");
   const loadTemplate = useCallback(
     (templateId: string) => {
@@ -972,7 +988,7 @@ export function SystemDesigner() {
     });
   }, [nodes, edges, peakBurstFactor, activeImpacts, trafficProfile]);
 
-  const adjacencyById = useMemo(() => {
+const adjacencyById = useMemo(() => {
     const map = new Map<string, string[]>();
   edges.forEach((edge) => {
     if (!map.has(edge.source)) {
@@ -984,7 +1000,11 @@ export function SystemDesigner() {
 }, [edges]);
 
   const nodesWithMetrics = calculateNodeMetrics();
-
+  const nodesById = useMemo(() => {
+    const map = new Map<string, Node>();
+    nodesWithMetrics.forEach((node) => map.set(node.id, node));
+    return map;
+  }, [nodesWithMetrics]);
   const nodeInsights = useMemo<NodeInsight[]>(() => {
     return nodesWithMetrics.map((node) => {
       const label = node.data.label as string;
@@ -1014,10 +1034,18 @@ export function SystemDesigner() {
         errorRate: (node.data.nodeErrorRate as number) || 0,
         costUsd: (node.data.nodeCostUsd as number) || 0,
         capacity,
-        capacityPercentage: capacity.percentage,
       };
     });
   }, [nodesWithMetrics]);
+
+  const labelById = useMemo(() => {
+    const map = new Map<string, string>();
+    nodesWithMetrics.forEach((node) => {
+      map.set(node.id, (node.data.displayLabel as string) || (node.data.label as string));
+    });
+    return map;
+  }, [nodesWithMetrics]);
+
   const overCapacityNodeIds = useMemo(() => {
     const ids = new Set<string>();
     nodeInsights.forEach((insight) => {
@@ -1104,19 +1132,51 @@ export function SystemDesigner() {
     };
   }, [nodesWithMetrics, activeImpacts]);
 
-  const whatIfInsights = useMemo(() => {
+  const whatIfInsights = useMemo<WhatIfInsight[]>(() => {
     if (!nodesWithMetrics.length) return [];
+
+    const evaluateDownstream = (sourceId: string, multiplier: number, latencyOverride?: number) => {
+      const downstreamIds = adjacencyById.get(sourceId) || [];
+      const saturated: { name: string; usage: number; suggestion: string }[] = [];
+      downstreamIds.forEach((targetId) => {
+        const targetNode = nodesById.get(targetId);
+        if (!targetNode) return;
+        const label = targetNode.data.label as string;
+        const config = targetNode.data.config as NodeConfig | undefined;
+        if (!config) return;
+        const baseQPS = (targetNode.data.nodeQPS as number) || 0;
+        const usage = calculateCapacityUsage(label, config, {
+          nodeQPS: baseQPS * multiplier,
+          nodeBandwidthMBps: (targetNode.data.nodeBandwidthMBps as number) || 0,
+          nodeQueueDepth: targetNode.data.nodeQueueDepth as number | undefined,
+          nodeStorageUsageGB: targetNode.data.nodeStorageUsageGB as number | undefined,
+          nodeLatencyMs:
+            latencyOverride ??
+            (targetNode.data.nodeLatencyMs as number) ??
+            defaultLatencies[label] ??
+            20,
+        });
+        if (usage.percentage >= 95) {
+          saturated.push({
+            name: (targetNode.data.displayLabel as string) || label,
+            usage: usage.percentage,
+            suggestion: getMitigationSuggestion(label),
+          });
+        }
+      });
+      return saturated;
+    };
+
+    const insights: WhatIfInsight[] = [];
+
     const serviceNodes = nodesWithMetrics.filter((node) => (node.data.label as string) === "Service");
-    const insights = serviceNodes.slice(0, 3).map((serviceNode) => {
+    serviceNodes.slice(0, 3).forEach((serviceNode) => {
       const serviceLabel = (serviceNode.data.displayLabel as string) || (serviceNode.data.label as string);
       const originalLatency = (serviceNode.data.nodeLatencyMs as number) || defaultLatencies.Service || 30;
       const increasedLatency = originalLatency * 1.5;
       const latencyDelta = increasedLatency - originalLatency;
       const nodeQPS = (serviceNode.data.nodeQPS as number) || 0;
       const serviceConfig = serviceNode.data.config as NodeConfig | undefined;
-      const downstreamIds = adjacencyById.get(serviceNode.id) || [];
-      const saturatedDownstream: { name: string; usage: number; suggestion: string }[] = [];
-
       const serviceCapacity =
         serviceConfig && nodeQPS > 0
           ? calculateCapacityUsage("Service", serviceConfig, {
@@ -1127,30 +1187,7 @@ export function SystemDesigner() {
               nodeLatencyMs: increasedLatency,
             })
           : CAPACITY_NONE;
-
-      downstreamIds.forEach((targetId) => {
-        const targetNode = nodesWithMetrics.find((n) => n.id === targetId);
-        if (!targetNode) return;
-        const label = targetNode.data.label as string;
-        const config = targetNode.data.config as NodeConfig | undefined;
-        if (!config) return;
-        const targetQPS = ((targetNode.data.nodeQPS as number) || 0) * 1.2;
-        const usage = calculateCapacityUsage(label, config, {
-          nodeQPS: targetQPS,
-          nodeBandwidthMBps: (targetNode.data.nodeBandwidthMBps as number) || 0,
-          nodeQueueDepth: targetNode.data.nodeQueueDepth as number | undefined,
-          nodeStorageUsageGB: targetNode.data.nodeStorageUsageGB as number | undefined,
-          nodeLatencyMs: (targetNode.data.nodeLatencyMs as number) || defaultLatencies[label] || 20,
-        });
-        if (usage.percentage >= 95) {
-          saturatedDownstream.push({
-            name: (targetNode.data.displayLabel as string) || label,
-            usage: usage.percentage,
-            suggestion: getMitigationSuggestion(label),
-          });
-        }
-      });
-
+      const saturatedDownstream = evaluateDownstream(serviceNode.id, 1.2, increasedLatency);
       const suggestions: string[] = [];
       if (serviceCapacity.percentage >= 90) {
         suggestions.push("Scale service instances or reduce latency via caching.");
@@ -1159,16 +1196,131 @@ export function SystemDesigner() {
       if (!suggestions.length) {
         suggestions.push("No immediate risk. Monitor latency and cache hit rates.");
       }
-      return {
-        serviceName: serviceLabel,
-        latencyDelta,
+      insights.push({
+        id: `service-${serviceNode.id}`,
+        scenarioTitle: "Service latency spike",
+        scenarioDescription: "Assume the service slows down by ~50% during peak traffic.",
+        primaryLabel: serviceLabel,
+        metricDeltaLabel: `+${latencyDelta.toFixed(0)} ms latency`,
         saturatedDownstream,
         suggestions,
-      };
+      });
     });
+
+    const cacheNodes = nodesWithMetrics.filter((node) => (node.data.label as string) === "Cache");
+    cacheNodes.slice(0, 2).forEach((cacheNode) => {
+      const cacheLabel = (cacheNode.data.displayLabel as string) || (cacheNode.data.label as string);
+      const cacheConfig = cacheNode.data.config as CacheConfig | undefined;
+      const hitRate = cacheConfig?.hitRate ?? 85;
+      const degradedHitRate = Math.max(10, hitRate - 25);
+      const delta = hitRate - degradedHitRate;
+      const multiplier = 1 + delta / 100;
+      const saturatedDownstream = evaluateDownstream(cacheNode.id, multiplier);
+      const suggestions = [
+        "Add cache shards or replicas to absorb demand.",
+        "Prime hot keys or increase memory to raise hit rate.",
+      ];
+      saturatedDownstream.forEach((downstream) => suggestions.push(downstream.suggestion));
+      insights.push({
+        id: `cache-${cacheNode.id}`,
+        scenarioTitle: "Cache miss surge",
+        scenarioDescription: "Hit rate drops sharply due to eviction or invalidation storm.",
+        primaryLabel: cacheLabel,
+        metricDeltaLabel: `Hit rate ${hitRate}% → ${degradedHitRate}%`,
+        saturatedDownstream,
+        suggestions,
+      });
+    });
+
+    const queueNodes = nodesWithMetrics.filter((node) => (node.data.label as string) === "Queue");
+    queueNodes.slice(0, 2).forEach((queueNode) => {
+      const queueLabel = (queueNode.data.displayLabel as string) || (queueNode.data.label as string);
+      const queueConfig = queueNode.data.config as QueueConfig | undefined;
+      const incomingQPS = (queueNode.data.nodeQPS as number) || 0;
+      const processingRate = queueConfig?.processingRate ?? queueConfig?.throughputRate ?? incomingQPS;
+      const spikedIncoming = incomingQPS * 1.4;
+      const backlogRate = Math.max(0, spikedIncoming - (queueConfig?.processingRate ?? processingRate));
+      const saturatedDownstream = evaluateDownstream(queueNode.id, 1.15);
+      const suggestions: string[] = [];
+      if (backlogRate > 0) {
+        suggestions.push("Add more workers or raise queue processing throughput.");
+      } else {
+        suggestions.push("Capacity covers the spike; continue monitoring.");
+      }
+      saturatedDownstream.forEach((downstream) => suggestions.push(downstream.suggestion));
+      insights.push({
+        id: `queue-${queueNode.id}`,
+        scenarioTitle: "Queue backlog",
+        scenarioDescription: "Burst drives +40% more messages into the queue than normal.",
+        primaryLabel: queueLabel,
+        metricDeltaLabel:
+          backlogRate > 0 ? `${backlogRate.toFixed(0)} msg/s backlog` : "Processing keeps pace",
+        saturatedDownstream,
+        suggestions,
+      });
+    });
+
     return insights;
+  }, [adjacencyById, nodesById, nodesWithMetrics]);
+
+  const dependencyInsights = useMemo(() => {
+    const downstreamCounts = new Map<string, number>();
+    nodesWithMetrics.forEach((node) => {
+      const visited = new Set<string>();
+      const queue = [...(adjacencyById.get(node.id) ?? [])];
+      while (queue.length > 0) {
+        const target = queue.shift()!;
+        if (visited.has(target)) continue;
+        visited.add(target);
+        const next = adjacencyById.get(target);
+        if (next && next.length) {
+          queue.push(...next);
+        }
+      }
+      downstreamCounts.set(node.id, visited.size);
+    });
+    const list = nodesWithMetrics.map((node) => ({
+      id: node.id,
+      label: node.data.label as string,
+      displayLabel: (node.data.displayLabel as string) || (node.data.label as string),
+      status: (node.data.nodeStatus as NodeHealthStatus) || "healthy",
+      downstreamCount: downstreamCounts.get(node.id) ?? 0,
+    }));
+    list.sort((a, b) => b.downstreamCount - a.downstreamCount);
+    const maxCount = list.length ? Math.max(...list.map((item) => item.downstreamCount)) : 1;
+    return { list, maxCount: Math.max(maxCount, 1) };
   }, [adjacencyById, nodesWithMetrics]);
-  const shouldShowRightSidebar = showScenarioPanel || whatIfInsights.length > 0;
+
+  const rippleImpacts = useMemo(() => {
+    const results: Array<{
+      rootId: string;
+      rootLabel: string;
+      impactedIds: string[];
+    }> = [];
+    Object.entries(activeImpacts).forEach(([nodeId, impact]) => {
+      if (impact.status !== "down") return;
+      const visited = new Set<string>();
+      const queue = [...(adjacencyById.get(nodeId) ?? [])];
+      while (queue.length > 0) {
+        const target = queue.shift()!;
+        if (visited.has(target)) continue;
+        visited.add(target);
+        const next = adjacencyById.get(target);
+        if (next && next.length) {
+          queue.push(...next);
+        }
+      }
+      results.push({
+        rootId: nodeId,
+        rootLabel: labelById.get(nodeId) ?? nodeId,
+        impactedIds: Array.from(visited),
+      });
+    });
+    return results;
+  }, [activeImpacts, adjacencyById, labelById]);
+  const shouldShowInsightsSidebar =
+    (showDependencyInsights && (dependencyInsights.list.length > 0 || rippleImpacts.length > 0)) ||
+    (showWhatIfPanelVisible && whatIfInsights.length > 0);
 
 
   const nodeTypes = {
@@ -1302,6 +1454,22 @@ export function SystemDesigner() {
             >
               {showTrafficPanel ? "Hide Traffic" : "Show Traffic"}
             </button>
+            <button
+              type="button"
+              className="control-pill"
+              data-active={showDependencyInsights}
+              onClick={() => setShowDependencyInsights((prev) => !prev)}
+            >
+              {showDependencyInsights ? "Hide Dependency Heatmap" : "Show Dependency Heatmap"}
+            </button>
+            <button
+              type="button"
+              className="control-pill"
+              data-active={showWhatIfPanelVisible}
+              onClick={() => setShowWhatIfPanelVisible((prev) => !prev)}
+            >
+              {showWhatIfPanelVisible ? "Hide What-if Insights" : "Show What-if Insights"}
+            </button>
             <button type="button" className="control-pill" onClick={handleAutoArrange}>
               Auto Arrange
             </button>
@@ -1423,21 +1591,88 @@ export function SystemDesigner() {
             </ReactFlow>
           </div>
         </div>
-        {shouldShowRightSidebar && (
+        {shouldShowInsightsSidebar && (
           <div className="right-sidebar">
-            {whatIfInsights.length > 0 && (
+            {showDependencyInsights && dependencyInsights.list.length > 0 && (
+              <div className="dependency-panel">
+                <div className="dependency-header">
+                  <h3>Dependency Heatmap</h3>
+                  <p>Nodes feeding the largest number of downstream components.</p>
+                </div>
+                <div className="dependency-list">
+                  {dependencyInsights.list.slice(0, 8).map((item, index) => (
+                    <div key={item.id} className="dependency-row">
+                      <div className="dependency-row-header">
+                        <span className="dependency-rank">{index + 1}</span>
+                        <span className="dependency-name">{item.displayLabel}</span>
+                        <span className={`dependency-status status-${item.status}`}>{item.status}</span>
+                      </div>
+                      <div className="dependency-bar">
+                        <div
+                          className="dependency-bar-fill"
+                          style={{
+                            width: `${Math.min(
+                              (item.downstreamCount / dependencyInsights.maxCount) * 100,
+                              100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="dependency-count">{item.downstreamCount} downstream</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {showDependencyInsights && rippleImpacts.length > 0 && (
+              <div className="dependency-panel ripple-panel">
+                <div className="dependency-header">
+                  <h3>Ripple Effects</h3>
+                  <p>Current outages and the nodes they threaten.</p>
+                </div>
+                <div className="ripple-list">
+                  {rippleImpacts.map((ripple) => (
+                    <div key={ripple.rootId} className="ripple-card">
+                      <div className="ripple-root">
+                        <strong>{ripple.rootLabel}</strong>
+                        <span>{ripple.impactedIds.length} downstream</span>
+                      </div>
+                      {ripple.impactedIds.length > 0 ? (
+                        <div className="ripple-tags">
+                          {ripple.impactedIds.slice(0, 4).map((id) => (
+                            <span key={id} className="ripple-tag">
+                              {labelById.get(id) ?? id}
+                            </span>
+                          ))}
+                          {ripple.impactedIds.length > 4 && (
+                            <span className="ripple-tag more">
+                              +{ripple.impactedIds.length - 4} more
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="what-if-muted">No downstream dependencies.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {showWhatIfPanelVisible && whatIfInsights.length > 0 && (
               <div className="what-if-panel">
                 <div className="what-if-header">
                   <h3>What-if Insights</h3>
-                  <p>Simulated +50% service latency spike.</p>
+                  <p>Stress-test components against spikes and degradations.</p>
                 </div>
                 <div className="what-if-list">
                   {whatIfInsights.map((insight, index) => (
-                    <div key={`${insight.serviceName}-${index}`} className="what-if-card">
-                      <div className="what-if-card-header">
-                        <strong>{insight.serviceName}</strong>
-                        <span>+{insight.latencyDelta.toFixed(0)} ms latency</span>
+                    <div key={`${insight.id}-${index}`} className="what-if-card">
+                      <div className="what-if-scenario">
+                        <span className="what-if-tag">{insight.scenarioTitle}</span>
+                        <strong>{insight.primaryLabel}</strong>
                       </div>
+                      <p className="what-if-description">{insight.scenarioDescription}</p>
+                      <div className="what-if-metric">{insight.metricDeltaLabel}</div>
                       {insight.saturatedDownstream.length > 0 ? (
                         <ul className="what-if-impact-list">
                           {insight.saturatedDownstream.map((downstream) => (
@@ -1460,20 +1695,22 @@ export function SystemDesigner() {
                 </div>
               </div>
             )}
-            {showScenarioPanel && (
-              <ScenarioPanel
-                nodes={nodesWithMetrics}
-                events={scenarioEvents}
-                clock={scenarioClock}
-                playing={scenarioPlaying}
-                onCreateEvent={handleCreateScenarioEvent}
-                onRemoveEvent={handleRemoveScenarioEvent}
-                onTogglePlay={handleToggleScenarioPlay}
-                onResetClock={handleResetScenario}
-                onTriggerEvent={handleTriggerScenarioEvent}
-              />
-            )}
           </div>
+        )}
+        {showScenarioPanel && (
+          <aside className="scenario-panel-wrapper">
+            <ScenarioPanel
+              nodes={nodesWithMetrics}
+              events={scenarioEvents}
+              clock={scenarioClock}
+              playing={scenarioPlaying}
+              onCreateEvent={handleCreateScenarioEvent}
+              onRemoveEvent={handleRemoveScenarioEvent}
+              onTogglePlay={handleToggleScenarioPlay}
+              onResetClock={handleResetScenario}
+              onTriggerEvent={handleTriggerScenarioEvent}
+            />
+          </aside>
         )}
       </div>
       {selectedNode && (
