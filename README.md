@@ -15,8 +15,9 @@ System Design Sandbox is a Vite + React + TypeScript application for sketching d
 
 ## Download & Run Locally
 
+Clone the repo
+
 ```bash
-git clone https://github.com/<your-org>/sysdesign-sandbox.git
 cd sysdesign-sandbox
 npm install
 npm run dev
