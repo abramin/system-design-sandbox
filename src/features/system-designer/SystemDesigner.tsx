@@ -24,6 +24,7 @@ import type {
 import ConfigPanel from "./components/ConfigPanel";
 import CustomNode from "./components/CustomNode";
 import GuidedLabsPanel, { type GuidedLab } from "./components/GuidedLabsPanel";
+import { BuilderToolbar } from "./components/BuilderToolbar";
 import { defaultTrafficProfile, defaultLatencies, DEFAULT_REQUESTS_PER_USER_PER_DAY, CAPACITY_NONE } from "./constants/defaults";
 import { NodeConfigureContext, NodeRenameContext } from "./context/node-config";
 import {
@@ -43,15 +44,11 @@ import { calculateCapacityUsage, getMitigationSuggestion } from "./utils/capacit
 import { computeAvailableDimensions, layoutNodesWithFlow } from "./utils/layout";
 import { getDefaultConfig } from "./utils/nodes";
 import type { CDNConfig, CacheConfig, DatabaseConfig, NodeConfig, QueueConfig, UserConfig } from "./types";
+import { useSloTargets } from "./hooks/useSloTargets";
 
 let scenarioEventIdCounter = 1;
 let edgeIdCounter = 1;
 let nodeIdCounter = 4;
-const SLO_STORAGE_KEY = "systemDesignerSloTargets";
-const DEFAULT_SLO_TARGETS: SloTargets = {
-  latencyMs: 120,
-  errorRate: 0.01,
-};
 
 interface WhatIfInsight {
   id: string;
@@ -99,28 +96,7 @@ export function SystemDesigner() {
   const [showLabsPanel, setShowLabsPanel] = useState(false);
   const [showDependencyInsights, setShowDependencyInsights] = useState(true);
   const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(true);
-  const [sloTargets, setSloTargets] = useState<SloTargets>(() => {
-    if (typeof window === "undefined") return DEFAULT_SLO_TARGETS;
-    try {
-      const stored = window.localStorage.getItem(SLO_STORAGE_KEY);
-      if (!stored) return DEFAULT_SLO_TARGETS;
-      const parsed = JSON.parse(stored);
-      if (
-        typeof parsed === "object" &&
-        parsed &&
-        typeof parsed.latencyMs === "number" &&
-        typeof parsed.errorRate === "number"
-      ) {
-        return {
-          latencyMs: Math.max(0, parsed.latencyMs),
-          errorRate: Math.max(0, parsed.errorRate),
-        };
-      }
-      return DEFAULT_SLO_TARGETS;
-    } catch {
-      return DEFAULT_SLO_TARGETS;
-    }
-  });
+  const { sloTargets, setSloTargets, handleUpdateSloTargets } = useSloTargets();
   const [labProgress, setLabProgress] = useState<Record<string, boolean>>(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -136,10 +112,6 @@ export function SystemDesigner() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(LAB_PROGRESS_STORAGE_KEY, JSON.stringify(labProgress));
   }, [labProgress]);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(SLO_STORAGE_KEY, JSON.stringify(sloTargets));
-  }, [sloTargets]);
 
   const handleToggleLabStep = useCallback((stepId: string) => {
     setLabProgress((prev) => {
@@ -159,9 +131,6 @@ export function SystemDesigner() {
       });
       return next;
     });
-  }, []);
-  const handleUpdateSloTargets = useCallback((next: SloTargets) => {
-    setSloTargets(next);
   }, []);
   const [activeView, setActiveView] = useState<"builder" | "metrics" | "coach" | "guide">("builder");
   const loadTemplate = useCallback(
@@ -1465,163 +1434,39 @@ const adjacencyById = useMemo(() => {
           </header>
           {activeView === "builder" && (
             <>
-      <div className="layout-controls">
-        <div className="layout-group template-group">
-          <div className="template-menu" ref={templateMenuRef}>
-            <button
-              type="button"
-              className={`template-trigger ${templateMenuOpen ? "open" : ""}`}
-              onClick={() => setTemplateMenuOpen((prev) => !prev)}
-            >
-              {templateMenuOpen ? "Close Examples" : "Load Examples"}
-            </button>
-            {templateMenuOpen && (
-              <div className="template-dropdown" role="listbox" aria-label="System templates">
-                {systemTemplates.map((template) => (
-                  <button
-                    type="button"
-                    key={template.id}
-                    className={`template-option ${templatePreviewId === template.id ? "active" : ""}`}
-                    onMouseEnter={() => setTemplatePreviewId(template.id)}
-                    onFocus={() => setTemplatePreviewId(template.id)}
-                    onClick={() => {
-                      loadTemplate(template.id);
-                      setTemplateMenuOpen(false);
-                    }}
-                  >
-                    <span className="template-option-name">{template.name}</span>
-                    <span className="template-option-meta">{template.nodes.length} nodes</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {templateMenuOpen && templatePreview && (
-              <div className="template-tooltip">
-                <strong>{templatePreview.name}</strong>
-                <p>{templatePreview.description}</p>
-              </div>
-            )}
-            <div className="template-actions">
-              <button type="button" onClick={handleExportTemplate}>
-                Export Template
-              </button>
-              <button type="button" onClick={handleImportTemplateClick}>
-                Import Template
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="layout-group management-group">
-            <button
-              type="button"
-              className="control-pill"
-              data-active={showLeftPanel}
-              onClick={() => setShowLeftPanel((prev) => !prev)}
-            >
-              {showLeftPanel ? "Hide Components" : "Show Components"}
-            </button>
-            <button
-              type="button"
-              className="control-pill"
-              data-active={showScenarioPanel}
-              onClick={() => setShowScenarioPanel((prev) => !prev)}
-            >
-              {showScenarioPanel ? "Hide Scenarios" : "Show Scenarios"}
-            </button>
-            <button
-              type="button"
-              className="control-pill"
-              data-active={showPatternPanel}
-              onClick={() => setShowPatternPanel((prev) => !prev)}
-            >
-              {showPatternPanel ? "Hide Patterns" : "Show Patterns"}
-            </button>
-            <button
-              type="button"
-              className="control-pill"
-              data-active={showTrafficPanel}
-              onClick={() => setShowTrafficPanel((prev) => !prev)}
-            >
-              {showTrafficPanel ? "Hide Traffic" : "Show Traffic"}
-            </button>
-            <button
-              type="button"
-              className="control-pill"
-              data-active={showDependencyInsights}
-              onClick={() => setShowDependencyInsights((prev) => !prev)}
-            >
-              {showDependencyInsights ? "Hide Dependency Heatmap" : "Show Dependency Heatmap"}
-            </button>
-            <button
-              type="button"
-              className="control-pill"
-              data-active={showWhatIfPanelVisible}
-              onClick={() => setShowWhatIfPanelVisible((prev) => !prev)}
-            >
-              {showWhatIfPanelVisible ? "Hide What-if Insights" : "Show What-if Insights"}
-            </button>
-            <button type="button" className="control-pill" onClick={handleAutoArrange}>
-              Auto Arrange
-            </button>
-        </div>
-        <div className="layout-group slo-controls">
-          <span className="slo-controls-title">SLO Targets</span>
-          <label className="slo-inline-input">
-            <span>Latency (ms)</span>
-            <input
-              type="number"
-              min={0}
-              value={Number.isFinite(sloTargets.latencyMs) ? sloTargets.latencyMs : 0}
-              onChange={(event) => {
-                const rawValue = Number(event.target.value);
-                handleUpdateSloTargets({
-                  ...sloTargets,
-                  latencyMs: Number.isFinite(rawValue) ? Math.max(0, rawValue) : sloTargets.latencyMs,
-                });
-              }}
-            />
-          </label>
-          <label className="slo-inline-input">
-            <span>Error Rate (%)</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={
-                Number.isFinite(sloTargets.errorRate)
-                  ? Number((sloTargets.errorRate * 100).toFixed(3))
-                  : 0
-              }
-              onChange={(event) => {
-                const rawValue = Number(event.target.value);
-                handleUpdateSloTargets({
-                  ...sloTargets,
-                  errorRate: Number.isFinite(rawValue) ? Math.max(0, rawValue) / 100 : sloTargets.errorRate,
-                });
-              }}
-            />
-          </label>
-        </div>
-        <div className="layout-group labs-highlight">
-          <span className="labs-chip">Labs</span>
-          <button
-            type="button"
-            className={`control-pill ${showLabsPanel ? "active" : ""}`}
-            data-active={showLabsPanel}
-            onClick={() => setShowLabsPanel((prev) => !prev)}
-          >
-            {showLabsPanel ? "Hide" : "Show"} Guided Labs
-          </button>
-        </div>
-        <button
-          type="button"
-          className="control-pill warning"
-          data-active="false"
-          onClick={resetCanvas}
-        >
-          Clear Canvas
-        </button>
-      </div>
+      <BuilderToolbar
+        templateMenuOpen={templateMenuOpen}
+        templateMenuRef={templateMenuRef}
+        templatePreview={templatePreview}
+        templatePreviewId={templatePreviewId}
+        templates={systemTemplates}
+        onToggleTemplateMenu={() => setTemplateMenuOpen((prev) => !prev)}
+        onTemplatePreviewChange={setTemplatePreviewId}
+        onSelectTemplate={(templateId) => {
+          loadTemplate(templateId);
+          setTemplateMenuOpen(false);
+        }}
+        onExportTemplate={handleExportTemplate}
+        onImportTemplateClick={handleImportTemplateClick}
+        showLeftPanel={showLeftPanel}
+        onToggleLeftPanel={() => setShowLeftPanel((prev) => !prev)}
+        showScenarioPanel={showScenarioPanel}
+        onToggleScenarioPanel={() => setShowScenarioPanel((prev) => !prev)}
+        showPatternPanel={showPatternPanel}
+        onTogglePatternPanel={() => setShowPatternPanel((prev) => !prev)}
+        showTrafficPanel={showTrafficPanel}
+        onToggleTrafficPanel={() => setShowTrafficPanel((prev) => !prev)}
+        showDependencyInsights={showDependencyInsights}
+        onToggleDependencyInsights={() => setShowDependencyInsights((prev) => !prev)}
+        showWhatIfPanel={showWhatIfPanelVisible}
+        onToggleWhatIfPanel={() => setShowWhatIfPanelVisible((prev) => !prev)}
+        showLabsPanel={showLabsPanel}
+        onToggleLabsPanel={() => setShowLabsPanel((prev) => !prev)}
+        onAutoArrange={handleAutoArrange}
+        onClearCanvas={resetCanvas}
+        sloTargets={sloTargets}
+        onUpdateSloTargets={handleUpdateSloTargets}
+      />
       {connectionError && <div className="connection-error">{connectionError}</div>}
       <div className="app-layout">
         {showLeftPanel && (
