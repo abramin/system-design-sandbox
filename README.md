@@ -61,8 +61,7 @@ The Coach tab can talk to either a **local** model or an **external API**:
 - Styles live in `src/App.css`; domain-specific logic is organized under `src/features/system-designer`.
 
 
- ## Screenshots
-
+**Screenshots**
  
 <img width="1709" height="1079" alt="Captura de pantalla 2025-11-09 a las 11 29 22" src="https://github.com/user-attachments/assets/eb1f8d3d-430c-4342-8883-0f4719f1a785" />
 <img width="1335" height="1019" alt="Captura de pantalla 2025-11-09 a las 11 28 49" src="https://github.com/user-attachments/assets/7e72bf33-b1ee-45af-a506-833442590eca" />
