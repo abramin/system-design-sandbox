@@ -32,6 +32,10 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.mobile-toolbar {
+  display: none;
+}
+
 .small-screen-banner {
   display: none;
   width: 100%;
@@ -2041,14 +2045,75 @@
   }
 
   .layout-controls {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 16px;
+    display: none;
   }
 
   .layout-group {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .mobile-toolbar {
+    display: block;
+    width: 100%;
+    background: #0b1120;
+    border-bottom: 1px solid #1e293b;
+    padding: 10px 16px;
+    box-sizing: border-box;
+  }
+
+  .mobile-toolbar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .mobile-menu-button,
+  .mobile-auto-arrange {
+    flex: 1;
+    border: 1px solid rgba(59, 130, 246, 0.6);
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    color: #e2e8f0;
+    padding: 8px 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.45);
+  }
+
+  .mobile-toolbar-panel {
+    margin-top: 14px;
+    background: rgba(8, 20, 47, 0.95);
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 25px 45px rgba(2, 6, 23, 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .mobile-toolbar-section .layout-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .mobile-toolbar-section .control-pill,
+  .mobile-toolbar-section .template-actions button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .mobile-toolbar-section .slo-inline-input {
+    width: 100%;
+  }
+
+  .mobile-toolbar-section .slo-inline-input input {
+    width: 100%;
   }
 
   .small-screen-banner {

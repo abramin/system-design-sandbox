@@ -107,6 +107,10 @@ export function SystemDesigner() {
   const [showDependencyInsights, setShowDependencyInsights] = useState(true);
   const [showWhatIfPanelVisible, setShowWhatIfPanelVisible] = useState(true);
   const [isTouchDevice, setIsTouchDevice] = useState(() => detectTouchDevice());
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth <= 900;
+  });
   const { sloTargets, setSloTargets, handleUpdateSloTargets } = useSloTargets();
   const [labProgress, setLabProgress] = useState<Record<string, boolean>>(() => {
     if (typeof window === "undefined") return {};
@@ -133,6 +137,19 @@ export function SystemDesigner() {
     return () => {
       window.removeEventListener("orientationchange", handleResize);
       window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleViewportChange = () => {
+      setIsMobileViewport(window.innerWidth <= 900);
+    };
+    handleViewportChange();
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("orientationchange", handleViewportChange);
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("orientationchange", handleViewportChange);
     };
   }, []);
 
@@ -1531,6 +1548,7 @@ const adjacencyById = useMemo(() => {
         onClearCanvas={resetCanvas}
         sloTargets={sloTargets}
         onUpdateSloTargets={handleUpdateSloTargets}
+        isMobile={isMobileViewport}
       />
       {connectionError && <div className="connection-error">{connectionError}</div>}
       <div className="app-layout">
