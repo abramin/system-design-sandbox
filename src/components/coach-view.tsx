@@ -32,7 +32,7 @@ type TemplatePayload = {
   edges: NormalizedEdge[];
 };
 
-interface GuideViewProps {
+interface CoachViewProps {
   onApplyTemplate?: (template: TemplatePayload) => void | Promise<void>;
 }
 
@@ -62,7 +62,7 @@ type SnapshotResponse = {
   edges?: SnapshotEdgeDraft[];
 };
 
-type GuideSessionSnapshot = {
+type CoachSessionSnapshot = {
   baseUrl: string;
   model: string;
   practiceBrief: string;
@@ -71,35 +71,35 @@ type GuideSessionSnapshot = {
   lastPrompt: string | null;
 };
 
-const GUIDE_SESSION_STORAGE_KEY = "sysdesign-sandbox:guide-session";
+const COACH_SESSION_STORAGE_KEY = "sysdesign-sandbox:coach-session";
 const DEFAULT_BASE_URL = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3.2";
 const DEFAULT_PRACTICE_BRIEF =
   "Design a URL shortener that serves 3B redirects per day with analytics and custom domains.";
 
-let cachedGuideSession: GuideSessionSnapshot | null | undefined;
+let cachedCoachSession: CoachSessionSnapshot | null | undefined;
 
-const readPersistedSession = (): GuideSessionSnapshot | null => {
-  if (cachedGuideSession !== undefined) {
-    return cachedGuideSession;
+const readPersistedSession = (): CoachSessionSnapshot | null => {
+  if (cachedCoachSession !== undefined) {
+    return cachedCoachSession;
   }
   if (typeof window === "undefined") {
-    cachedGuideSession = null;
-    return cachedGuideSession;
+    cachedCoachSession = null;
+    return cachedCoachSession;
   }
   try {
-    const raw = window.localStorage.getItem(GUIDE_SESSION_STORAGE_KEY);
+    const raw = window.localStorage.getItem(COACH_SESSION_STORAGE_KEY);
     if (!raw) {
-      cachedGuideSession = null;
-      return cachedGuideSession;
+      cachedCoachSession = null;
+      return cachedCoachSession;
     }
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
-      cachedGuideSession = null;
-      return cachedGuideSession;
+      cachedCoachSession = null;
+      return cachedCoachSession;
     }
-    const candidate = parsed as Partial<GuideSessionSnapshot>;
-    cachedGuideSession = {
+    const candidate = parsed as Partial<CoachSessionSnapshot>;
+    cachedCoachSession = {
       baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl : DEFAULT_BASE_URL,
       model: typeof candidate.model === "string" ? candidate.model : DEFAULT_MODEL,
       practiceBrief:
@@ -109,15 +109,15 @@ const readPersistedSession = (): GuideSessionSnapshot | null => {
       lastPrompt: typeof candidate.lastPrompt === "string" ? candidate.lastPrompt : null,
     };
   } catch {
-    cachedGuideSession = null;
+    cachedCoachSession = null;
   }
-  return cachedGuideSession;
+  return cachedCoachSession;
 };
 
-const persistSession = (snapshot: GuideSessionSnapshot) => {
+const persistSession = (snapshot: CoachSessionSnapshot) => {
   if (typeof window === "undefined") return;
-  cachedGuideSession = snapshot;
-  window.localStorage.setItem(GUIDE_SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+  cachedCoachSession = snapshot;
+  window.localStorage.setItem(COACH_SESSION_STORAGE_KEY, JSON.stringify(snapshot));
 };
 
 type InlineSegment = { kind: "text" | "strong" | "em" | "code"; value: string };
@@ -527,7 +527,7 @@ const normalizeSnapshotResponse = (raw: SnapshotResponse): TemplatePayload => {
   };
 };
 
-export default function GuideView({ onApplyTemplate }: GuideViewProps) {
+export default function CoachView({ onApplyTemplate }: CoachViewProps) {
   const [baseUrl, setBaseUrl] = useState(() => readPersistedSession()?.baseUrl ?? DEFAULT_BASE_URL);
   const [model, setModel] = useState(() => readPersistedSession()?.model ?? DEFAULT_MODEL);
   const [practiceBrief, setPracticeBrief] = useState(
@@ -750,7 +750,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
       const templatePayload = normalizeSnapshotResponse(parsed);
       await Promise.resolve(
         onApplyTemplate({
-          name: templatePayload.name ?? "guide-snapshot",
+          name: templatePayload.name ?? "coach-snapshot",
           nodes: templatePayload.nodes,
           edges: templatePayload.edges,
         })
@@ -794,7 +794,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
   }, [chatError, connectionStatus, status]);
 
   return (
-    <div className="guide-view">
+    <div className="coach-view">
       <div className="coach-grid">
         <section className="coach-card coach-controls">
           <header className="coach-controls-header">

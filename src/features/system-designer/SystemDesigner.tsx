@@ -1,0 +1,1912 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactFlow, {
+  Background,
+  Controls,
+  MarkerType,
+  useEdgesState,
+  useNodesState,
+} from "reactflow";
+import type { Connection, Edge, Node, ReactFlowInstance } from "reactflow";
+import "reactflow/dist/style.css";
+
+import TrafficProfilePanel from "../../components/traffic-profile-panel";
+import ScenarioPanel from "../../components/scenario-panel";
+import MetricsDashboard, { type NodeInsight } from "../../components/metrics-dashboard";
+import CoachView from "../../components/coach-view";
+import GuidePage from "../../components/guide-page";
+import type {
+  TrafficProfile,
+  ScenarioEvent,
+  MonitoringSummary,
+  NodeHealthStatus,
+} from "../../types/system";
+import ConfigPanel from "./components/ConfigPanel";
+import CustomNode from "./components/CustomNode";
+import { defaultTrafficProfile, defaultLatencies, DEFAULT_REQUESTS_PER_USER_PER_DAY, CAPACITY_NONE } from "./constants/defaults";
+import { NodeConfigureContext, NodeRenameContext } from "./context/node-config";
+import {
+  initialNodes,
+  initialEdges,
+  messageFlows,
+  systemTemplates,
+  templateDisplayLabels,
+  systemPatterns,
+} from "./data/templates";
+import {
+  deriveScenarioImpacts,
+  estimateQueueDepth,
+  estimateStorageUsageGB,
+  getNumericConfigValue,
+} from "./utils/metrics";
+import { calculateCapacityUsage, getMitigationSuggestion } from "./utils/capacity";
+import { computeAvailableDimensions, layoutNodesWithFlow } from "./utils/layout";
+import { getDefaultConfig } from "./utils/nodes";
+import type { CDNConfig, CacheConfig, DatabaseConfig, NodeConfig, QueueConfig, UserConfig } from "./types";
+
+let scenarioEventIdCounter = 1;
+let edgeIdCounter = 1;
+let nodeIdCounter = 4;
+
+export function SystemDesigner() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [trafficProfile, setTrafficProfile] = useState<TrafficProfile>(defaultTrafficProfile);
+  const peakBurstFactor = trafficProfile.peakPercent / 100;
+  const [scenarioEvents, setScenarioEvents] = useState<ScenarioEvent[]>([]);
+  const [scenarioClock, setScenarioClock] = useState(0);
+  const [scenarioPlaying, setScenarioPlaying] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
+  const [flowPlaybackIndex, setFlowPlaybackIndex] = useState(0);
+  const [currentTemplateId, setCurrentTemplateId] = useState<string | null>(null);
+  const [templatePreviewId, setTemplatePreviewId] = useState<string | null>(null);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [flowMenuOpen, setFlowMenuOpen] = useState(false);
+  const templateMenuRef = useRef<HTMLDivElement | null>(null);
+  const flowMenuRef = useRef<HTMLDivElement | null>(null);
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
+    const defaults: Record<string, boolean> = {};
+    componentCategories.forEach((category) => {
+      defaults[category.id] = true;
+    });
+    return defaults;
+  });
+  const [showLeftPanel, setShowLeftPanel] = useState(true);
+  const [showScenarioPanel, setShowScenarioPanel] = useState(true);
+  const [showPatternPanel, setShowPatternPanel] = useState(true);
+  const [showTrafficPanel, setShowTrafficPanel] = useState(true);
+  const [activeView, setActiveView] = useState<"builder" | "metrics" | "coach" | "guide">("builder");
+  const loadTemplate = useCallback(
+    (templateId: string, sidebarOpen: boolean) => {
+      const template = systemTemplates.find((t) => t.id === templateId);
+      if (!template) return;
+      const clonedNodes = template.nodes.map((node) => ({
+        ...node,
+        position: { ...node.position },
+        data: { ...node.data },
+      }));
+      const labelOverrides = templateDisplayLabels[template.id];
+      if (labelOverrides) {
+        clonedNodes.forEach((node) => {
+          const override = labelOverrides[node.id];
+          if (override) {
+            node.data.displayLabel = override;
+          }
+        });
+      }
+      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      const spacedNodes = layoutNodesWithFlow(clonedNodes, template.edges, width, height);
+      const clonedEdges = template.edges.map((edge) => ({ ...edge }));
+      setNodes(spacedNodes);
+      setEdges(clonedEdges);
+      const maxNodeId = clonedNodes.reduce((max, node) => {
+        const numeric = Number(node.id);
+        return Number.isFinite(numeric) ? Math.max(max, numeric) : max;
+      }, 0);
+      const maxEdgeId = clonedEdges.reduce((max, edge) => {
+        const numeric = Number((edge.id || "").replace(/\D/g, ""));
+        return Number.isFinite(numeric) ? Math.max(max, numeric) : max;
+      }, 0);
+      nodeIdCounter = Math.max(maxNodeId + 1, clonedNodes.length + 1);
+      edgeIdCounter = Math.max(maxEdgeId + 1, clonedEdges.length + 1);
+      setScenarioEvents([]);
+      setScenarioClock(0);
+      setScenarioPlaying(false);
+      setSelectedFlowId(null);
+      setFlowPlaybackIndex(0);
+      setCurrentTemplateId(templateId);
+    },
+    [setNodes, setEdges, showLeftPanel]
+  );
+
+  const applyPattern = useCallback(
+    (patternId: string) => {
+      const pattern = systemPatterns.find((p) => p.id === patternId);
+      if (!pattern) return;
+      const idMap = new Map<string, string>();
+      const clonedNodes = pattern.nodes.map((node) => {
+        const newId = `${nodeIdCounter++}`;
+        idMap.set(node.id, newId);
+        return {
+          ...node,
+          id: newId,
+          position: { ...node.position },
+          data: node.data ? { ...node.data } : {},
+        };
+      });
+      const clonedEdges = pattern.edges.map((edge) => ({
+        ...edge,
+        id: `pe${edgeIdCounter++}`,
+        source: idMap.get(edge.source) ?? edge.source,
+        target: idMap.get(edge.target) ?? edge.target,
+      }));
+      const anticipatedEdges = edges.concat(clonedEdges);
+      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      setNodes((prevNodes) => {
+        const combined = prevNodes.concat(
+          clonedNodes.map((node) => ({
+            ...node,
+            data: node.data ? { ...node.data } : {},
+          }))
+        );
+        return layoutNodesWithFlow(combined, anticipatedEdges, width, height);
+      });
+      setEdges((prevEdges) => prevEdges.concat(clonedEdges));
+    },
+    [edges, selectedFlowId, showLeftPanel, showScenarioPanel]
+  );
+
+  const loadImportedTemplate = useCallback(
+    (templateData: { nodes: any[]; edges: any[] }) => {
+      if (!Array.isArray(templateData.nodes) || !Array.isArray(templateData.edges)) {
+        throw new Error("Template must include nodes and edges arrays.");
+      }
+      if (templateData.nodes.length === 0) {
+        throw new Error("Template contains no nodes.");
+      }
+      const idMap = new Map<string, string>();
+      const preparedNodes: Node[] = templateData.nodes.map((rawNode, index) => {
+        const baseId = typeof rawNode?.id === "string" ? rawNode.id : `import-node-${index}`;
+        const newId = `${nodeIdCounter++}`;
+        idMap.set(baseId, newId);
+        const rawData = rawNode?.data ?? {};
+        const label = typeof rawData.label === "string" ? rawData.label : rawNode?.label ?? `Node ${index + 1}`;
+        const config =
+          rawData.config && typeof rawData.config === "object" && Object.keys(rawData.config).length > 0
+            ? rawData.config
+            : getDefaultConfig(label);
+        return {
+          id: newId,
+          type: "custom",
+          position: {
+            x: Number(rawNode?.position?.x) || 0,
+            y: Number(rawNode?.position?.y) || index * 60,
+          },
+          data: {
+            label,
+            displayLabel: typeof rawData.displayLabel === "string" ? rawData.displayLabel : undefined,
+            config,
+          },
+        };
+      });
+      const preparedEdges: Edge[] = [];
+      templateData.edges.forEach((rawEdge) => {
+        const source = idMap.get(rawEdge?.source) ?? rawEdge?.source;
+        const target = idMap.get(rawEdge?.target) ?? rawEdge?.target;
+        if (!source || !target) {
+          return;
+        }
+        preparedEdges.push({
+          id: `ie${edgeIdCounter++}`,
+          source,
+          target,
+          label: rawEdge?.label,
+          animated: rawEdge?.animated ?? true,
+          markerEnd:
+            rawEdge?.markerEnd && typeof rawEdge.markerEnd === "object"
+              ? rawEdge.markerEnd
+              : { type: MarkerType.ArrowClosed, color: "#007bff" },
+        });
+      });
+      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      const laidOutNodes = layoutNodesWithFlow(preparedNodes, preparedEdges, width, height);
+      setNodes(laidOutNodes);
+      setEdges(preparedEdges);
+      setScenarioEvents([]);
+      setScenarioClock(0);
+      setScenarioPlaying(false);
+      setSelectedFlowId(null);
+      setFlowPlaybackIndex(0);
+      setCurrentTemplateId(null);
+    },
+    [selectedFlowId, showLeftPanel, showScenarioPanel, setEdges, setNodes]
+  );
+
+  const handleApplyGuideTemplate = useCallback(
+    (templateData: { name?: string; nodes: any[]; edges: any[] }) => {
+      try {
+        loadImportedTemplate(templateData);
+        setCurrentTemplateId(templateData.name ?? "guide-snapshot");
+      } catch (error) {
+        console.error(error);
+        window.alert("Failed to apply the generated template. Please try again.");
+      }
+    },
+    [loadImportedTemplate]
+  );
+
+  const handleExportTemplate = useCallback(() => {
+    if (nodes.length === 0) {
+      window.alert("There are no nodes on the canvas to export.");
+      return;
+    }
+    const serializedNodes = nodes.map((node) => {
+      const data = node.data || {};
+      return {
+        id: node.id,
+        type: node.type,
+        position: node.position,
+        data: {
+          label: data.label,
+          displayLabel: data.displayLabel,
+          config: data.config,
+        },
+      };
+    });
+    const serializedEdges = edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      label: edge.label,
+      animated: edge.animated,
+      markerEnd: edge.markerEnd,
+    }));
+    const payload = {
+      name: currentTemplateId ?? "custom-template",
+      exportedAt: new Date().toISOString(),
+      nodes: serializedNodes,
+      edges: serializedEdges,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const filename = `${payload.name}.json`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, currentTemplateId]);
+
+  const handleImportTemplateClick = useCallback(() => {
+    importInputRef.current?.click();
+  }, []);
+
+  const handleImportTemplateFile = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result as string);
+          loadImportedTemplate(parsed);
+        } catch (error) {
+          console.error(error);
+          window.alert("Failed to load template. Please ensure the JSON file is valid.");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = "";
+    },
+    [loadImportedTemplate]
+  );
+
+  const resetCanvas = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    nodeIdCounter = 1;
+    edgeIdCounter = 1;
+    setSelectedNode(null);
+    setSelectedEdgeId(null);
+    setSelectedFlowId(null);
+    setFlowPlaybackIndex(0);
+    setCurrentTemplateId(null);
+  }, []);
+
+  const handleAutoArrange = useCallback(() => {
+    setNodes((prevNodes) => {
+      if (prevNodes.length === 0) {
+        return prevNodes;
+      }
+      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      return layoutNodesWithFlow(prevNodes, edges, width, height);
+    });
+  }, [edges, selectedFlowId, showLeftPanel, showScenarioPanel]);
+
+  const clearEdgeSelection = useCallback(() => {
+    setSelectedEdgeId(null);
+    setEdges((eds) => {
+      let changed = false;
+      const next = eds.map((edge) => {
+        if (!edge.selected) {
+          return edge;
+        }
+        changed = true;
+        return { ...edge, selected: false };
+      });
+      return changed ? next : eds;
+    });
+  }, [setEdges]);
+
+  const selectEdge = useCallback(
+    (edgeId: string) => {
+      setSelectedEdgeId(edgeId);
+      setEdges((eds) => {
+        let changed = false;
+        const next = eds.map((edge) => {
+          if (edge.id === edgeId && !edge.selected) {
+            changed = true;
+            return { ...edge, selected: true };
+          }
+          if (edge.id !== edgeId && edge.selected) {
+            changed = true;
+            return { ...edge, selected: false };
+          }
+          return edge;
+        });
+        return changed ? next : eds;
+      });
+    },
+    [setEdges]
+  );
+
+  const handleTrafficProfileChange = useCallback((profile: TrafficProfile) => {
+    setTrafficProfile(profile);
+  }, []);
+
+  const handleApplyTrafficProfile = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        const label = node.data.label as string;
+        if (label !== "User") return node;
+        const existingConfig = (node.data.config as UserConfig) || {};
+        const updatedConfig: UserConfig = {
+          ...existingConfig,
+          daus: trafficProfile.baseDAUs,
+          messageSizeBytes: trafficProfile.messageSizeBytes,
+          latencyMs: existingConfig.latencyMs ?? 5,
+        };
+        return {
+          ...node,
+          data: { ...node.data, config: updatedConfig },
+        };
+      })
+    );
+  }, [trafficProfile, setNodes]);
+
+  const handleCreateScenarioEvent = useCallback(
+    (eventInput: Omit<ScenarioEvent, "id" | "targetLabel" | "triggered">) => {
+      setScenarioEvents((prev) => {
+        const targetNode = nodes.find((n) => n.id === eventInput.targetId);
+        const targetLabel = targetNode ? ((targetNode.data.label as string) || eventInput.targetId) : eventInput.targetId;
+        return prev.concat({
+          ...eventInput,
+          id: `scenario-${scenarioEventIdCounter++}`,
+          targetLabel,
+          triggered: false,
+        });
+      });
+    },
+    [nodes]
+  );
+
+  const handleRemoveScenarioEvent = useCallback((eventId: string) => {
+    setScenarioEvents((prev) => prev.filter((event) => event.id !== eventId));
+  }, []);
+
+  const handleToggleScenarioPlay = useCallback(() => {
+    setScenarioPlaying((prev) => !prev);
+  }, []);
+
+  const handleResetScenario = useCallback(() => {
+    setScenarioPlaying(false);
+    setScenarioClock(0);
+    setScenarioEvents((prev) => prev.map((event) => ({ ...event, triggered: false })));
+  }, []);
+
+  const handleTriggerScenarioEvent = useCallback(
+    (eventId: string) => {
+      setScenarioEvents((prev) =>
+        prev.map((event) =>
+          event.id === eventId
+            ? {
+                ...event,
+                startTime: scenarioClock,
+                triggered: true,
+              }
+            : event
+        )
+      );
+      setScenarioPlaying(true);
+    },
+    [scenarioClock]
+  );
+
+  const scenarioEndTime = useMemo(() => {
+    if (scenarioEvents.length === 0) return 0;
+    return scenarioEvents.reduce((max, event) => Math.max(max, event.startTime + event.durationSeconds), 0);
+  }, [scenarioEvents]);
+
+  const templateNodeLabelMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    systemTemplates.forEach((template) => {
+      map.set(template.id, new Set(template.nodes.map((node) => node.data.label as string)));
+    });
+    return map;
+  }, []);
+
+  const templatePreview = useMemo(() => {
+    if (!templatePreviewId) return null;
+    return systemTemplates.find((template) => template.id === templatePreviewId) ?? null;
+  }, [templatePreviewId]);
+
+  useEffect(() => {
+    if (templateMenuOpen) {
+      if (!templatePreviewId && systemTemplates.length > 0) {
+        setTemplatePreviewId(systemTemplates[0].id);
+      }
+    } else {
+      setTemplatePreviewId(null);
+    }
+  }, [templateMenuOpen, templatePreviewId, systemTemplates]);
+
+  useEffect(() => {
+    if (!templateMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (templateMenuRef.current && !templateMenuRef.current.contains(event.target as HTMLElement)) {
+        setTemplateMenuOpen(false);
+        setTemplatePreviewId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [templateMenuOpen]);
+
+  useEffect(() => {
+    if (!flowMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (flowMenuRef.current && !flowMenuRef.current.contains(event.target as HTMLElement)) {
+        setFlowMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [flowMenuOpen]);
+
+  useEffect(() => {
+    if (scenarioClock <= 0) {
+      return;
+    }
+    setScenarioEvents((prev) => {
+      let changed = false;
+      const next = prev.map((event) => {
+        if (!event.triggered && scenarioClock >= event.startTime) {
+          changed = true;
+          return { ...event, triggered: true };
+        }
+        return event;
+      });
+      return changed ? next : prev;
+    });
+  }, [scenarioClock]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!selectedEdgeId) return;
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
+          return;
+        }
+      }
+      event.preventDefault();
+      setEdges((eds) => eds.filter((edge) => edge.id !== selectedEdgeId));
+      setSelectedEdgeId(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedEdgeId, setEdges]);
+
+  useEffect(() => {
+    if (!scenarioPlaying) return;
+    const intervalId = window.setInterval(() => {
+      setScenarioClock((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [scenarioPlaying]);
+
+  useEffect(() => {
+    if (!scenarioPlaying) {
+      return;
+    }
+    if (scenarioEvents.length === 0) {
+      setScenarioPlaying(false);
+      if (scenarioClock !== 0) {
+        setScenarioClock(0);
+      }
+      return;
+    }
+    if (scenarioClock >= scenarioEndTime) {
+      setScenarioPlaying(false);
+      if (scenarioClock !== scenarioEndTime) {
+        setScenarioClock(scenarioEndTime);
+      }
+    }
+  }, [scenarioClock, scenarioEndTime, scenarioEvents.length, scenarioPlaying]);
+
+  const activeImpacts = useMemo(() => deriveScenarioImpacts(scenarioEvents, scenarioClock), [scenarioEvents, scenarioClock]);
+
+  const availableFlowIds = useMemo(() => {
+    if (!currentTemplateId) return new Set(messageFlows.map((flow) => flow.id));
+    const allowedLabels = templateNodeLabelMap.get(currentTemplateId);
+    if (!allowedLabels) return new Set<string>();
+    const allowedFlowIds = new Set<string>();
+    messageFlows.forEach((flow) => {
+      const matches = flow.steps.every((step) => allowedLabels.has(step.label));
+      if (matches) {
+        allowedFlowIds.add(flow.id);
+      }
+    });
+    return allowedFlowIds;
+  }, [currentTemplateId, templateNodeLabelMap]);
+
+  const currentFlow = useMemo(() => {
+    if (!selectedFlowId || !availableFlowIds.has(selectedFlowId)) return null;
+    return messageFlows.find((flow) => flow.id === selectedFlowId) ?? null;
+  }, [selectedFlowId, availableFlowIds]);
+  const flowStepCount = currentFlow?.steps.length ?? 0;
+
+  useEffect(() => {
+    if (!connectionError) return;
+    const timer = window.setTimeout(() => setConnectionError(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [connectionError]);
+
+  useEffect(() => {
+    if (!selectedFlowId) {
+      setFlowPlaybackIndex(0);
+    }
+  }, [selectedFlowId]);
+
+  useEffect(() => {
+    if (!currentFlow || flowStepCount === 0) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      setFlowPlaybackIndex((prev) => (prev + 1) % flowStepCount);
+    }, 1500);
+    return () => window.clearInterval(intervalId);
+  }, [currentFlow, flowStepCount]);
+
+  const onConnect = useCallback(
+    (params: Connection) => {
+      if (!params.source || !params.target) {
+        return;
+      }
+      const sourceNode = nodes.find((node) => node.id === params.source);
+      const targetNode = nodes.find((node) => node.id === params.target);
+      const sourceLabel = sourceNode?.data.label as string | undefined;
+      const targetLabel = targetNode?.data.label as string | undefined;
+      if (!canConnectLabels(sourceLabel, targetLabel)) {
+        setConnectionError(`Cannot connect ${sourceLabel ?? "Unknown"} → ${targetLabel ?? "Unknown"}`);
+        return;
+      }
+      const newEdge: Edge = {
+        id: `e${edgeIdCounter++}`,
+        source: params.source,
+        target: params.target,
+        sourceHandle: params.sourceHandle ?? null,
+        targetHandle: params.targetHandle ?? null,
+        animated: true,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: "#007bff",
+        },
+      };
+      setEdges((eds) => [...eds, newEdge]);
+    },
+    [nodes, setEdges]
+  );
+
+  const onEdgeDoubleClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      // Reverse the edge direction
+      setEdges((eds) =>
+        eds.map((e) =>
+          e.id === edge.id
+            ? {
+                ...e,
+                source: edge.target,
+                target: edge.source,
+              }
+            : e
+        )
+      );
+    },
+    [setEdges]
+  );
+
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      selectEdge(edge.id);
+    },
+    [selectEdge]
+  );
+
+  const onNodesDelete = useCallback(
+    (deleted: Node[]) => {
+      // Also delete edges connected to deleted nodes
+      const deletedNodeIds = new Set(deleted.map((node) => node.id));
+      setEdges((eds) =>
+        eds.filter(
+          (edge) =>
+            !deletedNodeIds.has(edge.source) && !deletedNodeIds.has(edge.target)
+        )
+      );
+    },
+    [setEdges]
+  );
+
+  const onDragStart = (event: React.DragEvent, nodeType: string) => {
+    event.dataTransfer.setData("application/reactflow", nodeType);
+    event.dataTransfer.effectAllowed = "move";
+  };
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+
+      const type = event.dataTransfer.getData("application/reactflow");
+
+      if (typeof type === "undefined" || !type) {
+        return;
+      }
+
+      if (!reactFlowInstance || !reactFlowWrapper.current) {
+        return;
+      }
+
+      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
+      });
+
+      const newNode: Node = {
+        id: `${nodeIdCounter++}`,
+        type: "custom",
+        position,
+        data: { label: type, config: getDefaultConfig(type) },
+      };
+
+      setNodes((nds) => {
+        const nextNodes = nds.concat(newNode);
+        const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
+        const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+        return layoutNodesWithFlow(nextNodes, edges, width, height);
+      });
+    },
+    [reactFlowInstance, setNodes, showLeftPanel, showScenarioPanel, selectedFlowId, edges]
+  );
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      setSelectedNode(node);
+      if (selectedEdgeId) {
+        clearEdgeSelection();
+      }
+    },
+    [clearEdgeSelection, selectedEdgeId]
+  );
+
+  const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    setSelectedNode(node);
+  }, []);
+
+  const onPaneClick = useCallback(() => {
+    if (selectedEdgeId) {
+      clearEdgeSelection();
+    }
+  }, [clearEdgeSelection, selectedEdgeId]);
+
+  const handleNodeConfigure = useCallback(
+    (nodeId: string) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (node) {
+        setSelectedNode(node);
+      }
+    },
+    [nodes]
+  );
+
+  const handleNodeRename = useCallback(
+    (nodeId: string, newDisplayLabel: string) => {
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  displayLabel: newDisplayLabel.trim() ? newDisplayLabel.trim() : undefined,
+                },
+              }
+            : node
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  const handleConfigSave = useCallback(
+    (nodeId: string, config: NodeConfig, displayLabel?: string) => {
+      setNodes((nds) =>
+        nds.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  config,
+                  displayLabel,
+                },
+              }
+            : node
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  // Calculate flow metrics and enrich nodes with QPS/bandwidth data
+  const calculateNodeMetrics = useCallback(() => {
+    const userNode = nodes.find((node) => {
+      const label = node.data.label as string;
+      return label === "User";
+    });
+    const userConfig = userNode?.data.config as UserConfig | undefined;
+
+    const effectiveDAUs = userConfig?.daus ?? trafficProfile.baseDAUs;
+    const effectiveMessageSize = userConfig?.messageSizeBytes ?? trafficProfile.messageSizeBytes;
+
+    if (!effectiveDAUs || !effectiveMessageSize) {
+      return nodes;
+    }
+
+    const requestsPerUserPerDay = DEFAULT_REQUESTS_PER_USER_PER_DAY;
+    const baselineQPS = (effectiveDAUs * requestsPerUserPerDay) / 86400;
+    const peakQPS = Math.max(1, Math.round(baselineQPS * (1 + peakBurstFactor)));
+    const messageSize = effectiveMessageSize;
+
+    // Build adjacency map
+    const adjacencyMap = new Map<string, string[]>();
+    edges.forEach((edge) => {
+      if (!adjacencyMap.has(edge.source)) {
+        adjacencyMap.set(edge.source, []);
+      }
+      adjacencyMap.get(edge.source)!.push(edge.target);
+    });
+
+    const nodeMap = new Map<string, Node>();
+    nodes.forEach((node) => nodeMap.set(node.id, node));
+
+    const nodeLoad = new Map<string, number>();
+    const nodeBandwidth = new Map<string, number>();
+    const nodeQueueDepth = new Map<string, number>();
+    const nodeStorageUsage = new Map<string, number>();
+    const nodeLatency = new Map<string, number>();
+    const nodeErrorRate = new Map<string, number>();
+    const nodeCost = new Map<string, number>();
+    const nodeStatusMap = new Map<string, NodeHealthStatus>();
+
+    // Track processed paths to avoid infinite loops while allowing multiple sources
+    const processedPaths = new Set<string>();
+    
+    const processNode = (nodeId: string, incomingQPS: number, pathKey?: string) => {
+      const node = nodeMap.get(nodeId);
+      if (!node) return;
+
+      const label = node.data.label as string;
+      const config = node.data.config as NodeConfig | undefined;
+
+      const impact = activeImpacts[nodeId];
+      const status: NodeHealthStatus = impact?.status ?? "healthy";
+      nodeStatusMap.set(nodeId, status);
+
+      let effectiveIncomingQPS = incomingQPS;
+      if (impact) {
+        if (impact.status === "down") {
+          effectiveIncomingQPS = 0;
+        } else {
+          effectiveIncomingQPS *= impact.throughputMultiplier;
+        }
+      }
+
+      // Accumulate load (node can receive from multiple sources)
+      const currentLoad = nodeLoad.get(nodeId) || 0;
+      nodeLoad.set(nodeId, currentLoad + effectiveIncomingQPS);
+      
+      const bandwidthMBps = (effectiveIncomingQPS * messageSize) / 1024 / 1024;
+      const currentBandwidth = nodeBandwidth.get(nodeId) || 0;
+      nodeBandwidth.set(nodeId, currentBandwidth + bandwidthMBps);
+
+      const baseLatency = getNumericConfigValue(config, "latencyMs") ?? defaultLatencies[label] ?? 20;
+      const latencyMultiplier = impact?.latencyMultiplier ?? 1;
+      nodeLatency.set(nodeId, baseLatency * latencyMultiplier);
+
+      const baseErrorRate = getNumericConfigValue(config, "errorRate") ?? 0.001;
+      const errorRate = Math.min(1, baseErrorRate + (impact?.errorRateDelta ?? 0));
+      nodeErrorRate.set(nodeId, errorRate);
+
+      let monthlyCost = 0;
+      const costPerRequest = getNumericConfigValue(config, "costPerRequestUsd") ?? 0;
+      if (costPerRequest > 0) {
+        monthlyCost += costPerRequest * effectiveIncomingQPS * 60 * 60 * 24 * 30;
+      }
+      const costPerConnection = getNumericConfigValue(config, "costPerConnectionUsd") ?? 0;
+      const maxConnections = getNumericConfigValue(config, "maxConnections") ?? 0;
+      if (costPerConnection > 0 && maxConnections > 0) {
+        monthlyCost += costPerConnection * maxConnections;
+      }
+      const costPerInvocation = getNumericConfigValue(config, "costPerInvocationUsd") ?? 0;
+      if (costPerInvocation > 0) {
+        monthlyCost += costPerInvocation * effectiveIncomingQPS * 60 * 60 * 24 * 30;
+      }
+      const costPerGb = getNumericConfigValue(config, "costPerGbMonthUsd") ?? 0;
+      if (costPerGb > 0 && config && "storageGB" in config && typeof config.storageGB === "number") {
+        monthlyCost += costPerGb * (config.storageGB as number);
+      }
+      nodeCost.set(nodeId, monthlyCost);
+
+      const targets = adjacencyMap.get(nodeId) || [];
+      if (targets.length === 0 || status === "down") return;
+
+      // Calculate outgoing QPS based on this specific incoming path
+      let outgoingQPS = effectiveIncomingQPS;
+
+      if (label === "CDN") {
+        const cdnConfig = config as CDNConfig | undefined;
+        const hitRate = cdnConfig?.cacheHitRate || 95;
+        outgoingQPS = effectiveIncomingQPS * (1 - hitRate / 100);
+      } else if (label === "Cache") {
+        const cacheConfig = config as CacheConfig | undefined;
+        const hitRate = cacheConfig?.hitRate || 80;
+        outgoingQPS = effectiveIncomingQPS * (1 - hitRate / 100);
+      } else if (label === "Load Balancer") {
+        // Load balancer distributes evenly
+        const perTargetQPS = outgoingQPS / targets.length;
+        targets.forEach((targetId) => {
+          const newPathKey = pathKey ? `${pathKey}-${nodeId}-${targetId}` : `${nodeId}-${targetId}`;
+          if (!processedPaths.has(newPathKey)) {
+            processedPaths.add(newPathKey);
+            processNode(targetId, perTargetQPS, newPathKey);
+          }
+        });
+        return;
+      } else if (label === "Service") {
+        // Service passes through
+        outgoingQPS = effectiveIncomingQPS;
+      } else if (label === "Circuit Breaker") {
+        const healthyTargets = targets.filter((targetId) => {
+          const targetImpact = activeImpacts[targetId];
+          const targetStatus = targetImpact?.status ?? nodeStatusMap.get(targetId) ?? "healthy";
+          return targetStatus !== "down";
+        });
+        const targetList = healthyTargets.length > 0 ? healthyTargets : [];
+        if (healthyTargets.length === 0) {
+          nodeStatusMap.set(nodeId, "degraded");
+        } else if ((impact?.status ?? "healthy") === "healthy" && healthyTargets.length < targets.length) {
+          nodeStatusMap.set(nodeId, "degraded");
+        }
+        if (targetList.length === 0) {
+          return;
+        }
+        const perTargetQPS = outgoingQPS / targetList.length;
+        targetList.forEach((targetId) => {
+          const newPathKey = pathKey ? `${pathKey}-${nodeId}-${targetId}` : `${nodeId}-${targetId}`;
+          if (!processedPaths.has(newPathKey)) {
+            processedPaths.add(newPathKey);
+            processNode(targetId, perTargetQPS, newPathKey);
+          }
+        });
+        return;
+      } else if (label === "Database" || label === "DB") {
+        const dbConfig = config as DatabaseConfig | undefined;
+        const replicationFactor = dbConfig?.replicationFactor || 1;
+        const writeRatio = trafficProfile.writeRatio;
+        const readRatio = Math.max(0, 1 - writeRatio);
+        if (dbConfig?.readWriteSplit) {
+          const readQPS = outgoingQPS * readRatio;
+          const writeQPS = outgoingQPS * writeRatio;
+          targets.forEach((targetId) => {
+            const targetNode = nodeMap.get(targetId);
+            if (!targetNode) return;
+            const targetLabel = targetNode.data.label as string;
+            const newPathKey = pathKey ? `${pathKey}-${nodeId}-${targetId}` : `${nodeId}-${targetId}`;
+            if (!processedPaths.has(newPathKey)) {
+              processedPaths.add(newPathKey);
+              if (targetLabel === "Database" || targetLabel === "DB") {
+                processNode(targetId, readQPS / Math.max(1, replicationFactor), newPathKey);
+                processNode(targetId, writeQPS, `${newPathKey}-write`);
+              } else {
+                processNode(targetId, outgoingQPS / targets.length, newPathKey);
+              }
+            }
+          });
+          return;
+        } else {
+          // Load distributed across replicas
+          outgoingQPS = outgoingQPS / Math.max(1, replicationFactor);
+        }
+      }
+
+      // Distribute to all targets
+      targets.forEach((targetId) => {
+        const newPathKey = pathKey ? `${pathKey}-${nodeId}-${targetId}` : `${nodeId}-${targetId}`;
+        if (!processedPaths.has(newPathKey)) {
+          processedPaths.add(newPathKey);
+          processNode(targetId, outgoingQPS / targets.length, newPathKey);
+        }
+      });
+    };
+
+    if (userNode) {
+      processNode(userNode.id, peakQPS);
+    }
+
+    nodes.forEach((node) => {
+      const config = node.data.config as NodeConfig | undefined;
+      if (!config) {
+        if (!nodeStatusMap.has(node.id)) {
+          nodeStatusMap.set(node.id, "healthy");
+        }
+        return;
+      }
+      const label = node.data.label as string;
+      const nodeQPS = nodeLoad.get(node.id) || 0;
+
+      if (label === "Queue") {
+        const depth = estimateQueueDepth(config as QueueConfig, nodeQPS);
+        if (depth !== undefined) {
+          nodeQueueDepth.set(node.id, depth);
+        }
+      }
+
+      if ("storageGB" in config && config.storageGB) {
+        const usage = estimateStorageUsageGB(label, config, nodeQPS, messageSize);
+        if (usage !== undefined) {
+          nodeStorageUsage.set(node.id, usage);
+        }
+      }
+
+      if (!nodeStatusMap.has(node.id)) {
+        nodeStatusMap.set(node.id, "healthy");
+      }
+      if (!nodeLatency.has(node.id)) {
+        nodeLatency.set(node.id, getNumericConfigValue(config, "latencyMs") ?? defaultLatencies[label] ?? 20);
+      }
+      if (!nodeErrorRate.has(node.id)) {
+        nodeErrorRate.set(node.id, getNumericConfigValue(config, "errorRate") ?? 0.001);
+      }
+      if (!nodeCost.has(node.id)) {
+        const costPerRequest = getNumericConfigValue(config, "costPerRequestUsd") ?? 0;
+        nodeCost.set(node.id, costPerRequest * nodeQPS * 60 * 60 * 24 * 30);
+      }
+    });
+
+    // Enrich nodes with metrics
+    return nodes.map((node) => {
+      const label = node.data.label as string;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          nodeQPS: nodeLoad.get(node.id) || 0,
+          nodeBandwidthMBps: nodeBandwidth.get(node.id) || 0,
+          nodeQueueDepth: nodeQueueDepth.get(node.id),
+          nodeStorageUsageGB: nodeStorageUsage.get(node.id),
+          nodeLatencyMs: nodeLatency.get(node.id) || defaultLatencies[label] || 0,
+          nodeErrorRate: nodeErrorRate.get(node.id) || 0,
+          nodeCostUsd: nodeCost.get(node.id) || 0,
+          nodeStatus: nodeStatusMap.get(node.id) || "healthy",
+        },
+      };
+    });
+  }, [nodes, edges, peakBurstFactor, activeImpacts, trafficProfile]);
+
+  const adjacencyById = useMemo(() => {
+    const map = new Map<string, string[]>();
+    edges.forEach((edge) => {
+      if (!map.has(edge.source)) {
+        map.set(edge.source, []);
+      }
+      map.get(edge.source)!.push(edge.target);
+    });
+    return map;
+  }, [edges]);
+
+  const nodesWithMetrics = calculateNodeMetrics();
+  const flowHighlight = useMemo(() => {
+    if (!currentFlow || flowStepCount === 0) {
+      return {
+        activeLabel: null as string | null,
+        trailLabels: new Set<string>(),
+        activeEdgeKey: null as string | null,
+        trailEdgeKeys: new Set<string>(),
+      };
+    }
+    const steps = currentFlow.steps;
+    const stepIndex = flowPlaybackIndex % flowStepCount;
+    const trailLabels = new Set<string>();
+    for (let i = 0; i < stepIndex; i += 1) {
+      trailLabels.add(steps[i].label);
+    }
+    const activeLabel = steps[stepIndex]?.label ?? null;
+    const trailEdgeKeys = new Set<string>();
+    for (let i = 1; i < stepIndex; i += 1) {
+      const prev = steps[i - 1];
+      const curr = steps[i];
+      if (prev && curr) {
+        trailEdgeKeys.add(`${prev.label}->${curr.label}`);
+      }
+    }
+    let activeEdgeKey: string | null = null;
+    if (stepIndex > 0) {
+      const prev = steps[stepIndex - 1];
+      const curr = steps[stepIndex];
+      if (prev && curr) {
+        activeEdgeKey = `${prev.label}->${curr.label}`;
+      }
+    }
+    return { activeLabel, trailLabels, activeEdgeKey, trailEdgeKeys };
+  }, [currentFlow, flowStepCount, flowPlaybackIndex]);
+  const nodeLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    nodesWithMetrics.forEach((node) => {
+      map.set(node.id, node.data.label as string);
+    });
+    return map;
+  }, [nodesWithMetrics]);
+
+  const nodesForCanvas = useMemo(() => {
+    if (!flowHighlight.activeLabel && flowHighlight.trailLabels.size === 0) {
+      return nodesWithMetrics;
+    }
+    return nodesWithMetrics.map((node) => {
+      const label = node.data.label as string;
+      let flowState: "active" | "trail" | undefined;
+      if (flowHighlight.activeLabel && label === flowHighlight.activeLabel) {
+        flowState = "active";
+      } else if (flowHighlight.trailLabels.has(label)) {
+        flowState = "trail";
+      }
+      if (!flowState && !(node.data as Record<string, unknown>).flowState) {
+        return node;
+      }
+      const nextData = { ...node.data } as Record<string, unknown>;
+      if (flowState) {
+        nextData.flowState = flowState;
+      } else {
+        delete nextData.flowState;
+      }
+      return { ...node, data: nextData };
+    });
+  }, [nodesWithMetrics, flowHighlight]);
+
+  const edgesForCanvas = useMemo(() => {
+    if (!selectedFlowId) {
+      return edges;
+    }
+    const hasHighlight = Boolean(flowHighlight.activeEdgeKey) || flowHighlight.trailEdgeKeys.size > 0;
+    if (!hasHighlight) {
+      return edges;
+    }
+    return edges.map((edge) => {
+      const sourceLabel = nodeLabelById.get(edge.source);
+      const targetLabel = nodeLabelById.get(edge.target);
+      if (!sourceLabel || !targetLabel) {
+        return edge;
+      }
+      const key = `${sourceLabel}->${targetLabel}`;
+      let flowClass: string | null = null;
+      if (flowHighlight.activeEdgeKey && key === flowHighlight.activeEdgeKey) {
+        flowClass = "flow-active";
+      } else if (flowHighlight.trailEdgeKeys.has(key)) {
+        flowClass = "flow-trail";
+      }
+      if (!flowClass) {
+        if (!edge.className) {
+          return edge;
+        }
+        const baseClass = edge.className
+          .split(" ")
+          .filter((cls) => cls && !cls.startsWith("flow-"))
+          .join(" ");
+        if (baseClass === edge.className) {
+          return edge;
+        }
+        return { ...edge, className: baseClass || undefined };
+      }
+      const baseClass = edge.className
+        ? edge.className
+            .split(" ")
+            .filter((cls) => cls && !cls.startsWith("flow-"))
+            .join(" ")
+        : "";
+      const nextClass = [baseClass, flowClass].filter(Boolean).join(" ");
+      if (nextClass === edge.className) {
+        return edge;
+      }
+      return { ...edge, className: nextClass };
+    });
+  }, [edges, nodeLabelById, flowHighlight, selectedFlowId]);
+
+  const nodeInsights = useMemo<NodeInsight[]>(() => {
+    return nodesWithMetrics.map((node) => {
+      const label = node.data.label as string;
+      const displayLabel = (node.data.displayLabel as string) || label;
+      const config = node.data.config as NodeConfig | undefined;
+      const nodeQPS = (node.data.nodeQPS as number) || 0;
+      const nodeBandwidthMBps = (node.data.nodeBandwidthMBps as number) || 0;
+      const nodeQueueDepth = node.data.nodeQueueDepth as number | undefined;
+      const nodeStorageUsageGB = node.data.nodeStorageUsageGB as number | undefined;
+      const nodeLatencyMs = (node.data.nodeLatencyMs as number) || 0;
+      const capacity = config
+        ? calculateCapacityUsage(label, config, {
+            nodeQPS,
+            nodeBandwidthMBps,
+            nodeQueueDepth,
+            nodeStorageUsageGB,
+            nodeLatencyMs,
+          })
+        : CAPACITY_NONE;
+      return {
+        id: node.id,
+        label,
+        displayLabel,
+        status: (node.data.nodeStatus as NodeHealthStatus) || "healthy",
+        qps: nodeQPS,
+        latencyMs: nodeLatencyMs,
+        errorRate: (node.data.nodeErrorRate as number) || 0,
+        costUsd: (node.data.nodeCostUsd as number) || 0,
+        capacity,
+      };
+    });
+  }, [nodesWithMetrics]);
+  const monitoringSummary = useMemo<MonitoringSummary | null>(() => {
+    if (!nodesWithMetrics || nodesWithMetrics.length === 0) return null;
+    let totalQPS = 0;
+    let totalBandwidth = 0;
+    let weightedLatency = 0;
+    let weightedLatencyP95 = 0;
+    let weightedError = 0;
+    let totalCost = 0;
+    let saturatedNodes = 0;
+
+    nodesWithMetrics.forEach((node) => {
+      const qps = (node.data.nodeQPS as number) || 0;
+      const bandwidth = (node.data.nodeBandwidthMBps as number) || 0;
+      const latency = (node.data.nodeLatencyMs as number) || 0;
+      const errorRate = (node.data.nodeErrorRate as number) || 0;
+      const cost = (node.data.nodeCostUsd as number) || 0;
+      totalQPS += qps;
+      totalBandwidth += bandwidth;
+      weightedLatency += latency * qps;
+      weightedLatencyP95 += latency * 1.5 * qps;
+      weightedError += errorRate * qps;
+      totalCost += cost;
+
+      const config = node.data.config as NodeConfig | undefined;
+      if (config) {
+        const usage = calculateCapacityUsage(node.data.label as string, config, {
+          nodeQPS: qps,
+          nodeBandwidthMBps: bandwidth,
+          nodeQueueDepth: node.data.nodeQueueDepth as number | undefined,
+          nodeStorageUsageGB: node.data.nodeStorageUsageGB as number | undefined,
+          nodeLatencyMs: latency,
+        });
+        if (usage.percentage >= 80) {
+          saturatedNodes += 1;
+        }
+      }
+    });
+
+    if (totalQPS === 0) {
+      return {
+        totalQPS: 0,
+        totalBandwidthMBps: totalBandwidth,
+        avgLatencyMs: 0,
+        p95LatencyMs: 0,
+        errorRate: 0,
+        monthlyCostUsd: totalCost,
+        saturatedNodes,
+        activeIncidents: Object.keys(activeImpacts).length,
+      };
+    }
+
+    return {
+      totalQPS,
+      totalBandwidthMBps: totalBandwidth,
+      avgLatencyMs: weightedLatency / totalQPS,
+      p95LatencyMs: weightedLatencyP95 / totalQPS,
+      errorRate: weightedError / totalQPS,
+      monthlyCostUsd: totalCost,
+      saturatedNodes,
+      activeIncidents: Object.keys(activeImpacts).length,
+    };
+  }, [nodesWithMetrics, activeImpacts]);
+
+  const whatIfInsights = useMemo(() => {
+    if (!nodesWithMetrics.length) return [];
+    const serviceNodes = nodesWithMetrics.filter((node) => (node.data.label as string) === "Service");
+    const insights = serviceNodes.slice(0, 3).map((serviceNode) => {
+      const serviceLabel = (serviceNode.data.displayLabel as string) || (serviceNode.data.label as string);
+      const originalLatency = (serviceNode.data.nodeLatencyMs as number) || defaultLatencies.Service || 30;
+      const increasedLatency = originalLatency * 1.5;
+      const latencyDelta = increasedLatency - originalLatency;
+      const nodeQPS = (serviceNode.data.nodeQPS as number) || 0;
+      const serviceConfig = serviceNode.data.config as NodeConfig | undefined;
+      const downstreamIds = adjacencyById.get(serviceNode.id) || [];
+      const saturatedDownstream: { name: string; usage: number; suggestion: string }[] = [];
+
+      const serviceCapacity =
+        serviceConfig && nodeQPS > 0
+          ? calculateCapacityUsage("Service", serviceConfig, {
+              nodeQPS,
+              nodeBandwidthMBps: (serviceNode.data.nodeBandwidthMBps as number) || 0,
+              nodeQueueDepth: serviceNode.data.nodeQueueDepth as number | undefined,
+              nodeStorageUsageGB: serviceNode.data.nodeStorageUsageGB as number | undefined,
+              nodeLatencyMs: increasedLatency,
+            })
+          : CAPACITY_NONE;
+
+      downstreamIds.forEach((targetId) => {
+        const targetNode = nodesWithMetrics.find((n) => n.id === targetId);
+        if (!targetNode) return;
+        const label = targetNode.data.label as string;
+        const config = targetNode.data.config as NodeConfig | undefined;
+        if (!config) return;
+        const targetQPS = ((targetNode.data.nodeQPS as number) || 0) * 1.2;
+        const usage = calculateCapacityUsage(label, config, {
+          nodeQPS: targetQPS,
+          nodeBandwidthMBps: (targetNode.data.nodeBandwidthMBps as number) || 0,
+          nodeQueueDepth: targetNode.data.nodeQueueDepth as number | undefined,
+          nodeStorageUsageGB: targetNode.data.nodeStorageUsageGB as number | undefined,
+          nodeLatencyMs: (targetNode.data.nodeLatencyMs as number) || defaultLatencies[label] || 20,
+        });
+        if (usage.percentage >= 95) {
+          saturatedDownstream.push({
+            name: (targetNode.data.displayLabel as string) || label,
+            usage: usage.percentage,
+            suggestion: getMitigationSuggestion(label),
+          });
+        }
+      });
+
+      const suggestions: string[] = [];
+      if (serviceCapacity.percentage >= 90) {
+        suggestions.push("Scale service instances or reduce latency via caching.");
+      }
+      saturatedDownstream.forEach((downstream) => suggestions.push(downstream.suggestion));
+      if (!suggestions.length) {
+        suggestions.push("No immediate risk. Monitor latency and cache hit rates.");
+      }
+      return {
+        serviceName: serviceLabel,
+        latencyDelta,
+        saturatedDownstream,
+        suggestions,
+      };
+    });
+    return insights;
+  }, [adjacencyById, nodesWithMetrics]);
+
+
+  const flowInsight = useMemo(() => {
+    if (!currentFlow) return null;
+    const detailedSteps = currentFlow.steps.map((step) => {
+      const node = nodesWithMetrics.find((n) => (n.data.label as string) === step.label);
+      const latency = (node?.data.nodeLatencyMs as number) ?? defaultLatencies[step.label] ?? 0;
+      const qps = node?.data.nodeQPS as number | undefined;
+      const status = (node?.data.nodeStatus as NodeHealthStatus) || "healthy";
+      return {
+        ...step,
+        latency,
+        qps,
+        status,
+      };
+    });
+    const totalLatency = detailedSteps.reduce((sum, step) => sum + (step.latency || 0), 0);
+    return {
+      flow: currentFlow,
+      steps: detailedSteps,
+      totalLatency,
+    };
+  }, [currentFlow, nodesWithMetrics]);
+
+  const nodeTypes = {
+    custom: CustomNode,
+  };
+
+  return (
+    <NodeConfigureContext.Provider value={handleNodeConfigure}>
+      <NodeRenameContext.Provider value={handleNodeRename}>
+      <div className="app-shell">
+        <input
+          type="file"
+          accept="application/json"
+          ref={importInputRef}
+          style={{ display: "none" }}
+          onChange={handleImportTemplateFile}
+        />
+        <header className="app-header">
+            <div className="app-branding">
+              <h1>System Design Sandbox</h1>
+              <p>Model distributed systems, stress them, and observe live metrics.</p>
+            </div>
+            <div className="view-toggle">
+              <button
+                type="button"
+                className={activeView === "builder" ? "active" : ""}
+                onClick={() => setActiveView("builder")}
+              >
+                Design Canvas
+              </button>
+              <button
+                type="button"
+                className={activeView === "metrics" ? "active" : ""}
+                onClick={() => setActiveView("metrics")}
+              >
+                Metrics Board
+              </button>
+              <button
+                type="button"
+                className={activeView === "coach" ? "active" : ""}
+                onClick={() => setActiveView("coach")}
+              >
+                Coach
+              </button>
+              <button
+                type="button"
+                className={activeView === "guide" ? "active" : ""}
+                onClick={() => setActiveView("guide")}
+              >
+                Guide
+              </button>
+            </div>
+          </header>
+          {activeView === "builder" && (
+            <>
+      <div className="layout-controls">
+        <div className="layout-controls-left">
+          <div className="template-menu" ref={templateMenuRef}>
+            <button
+              type="button"
+              className={`template-trigger ${templateMenuOpen ? "open" : ""}`}
+              onClick={() => setTemplateMenuOpen((prev) => !prev)}
+            >
+              {templateMenuOpen ? "Close Examples" : "Load Examples"}
+            </button>
+            {templateMenuOpen && (
+              <div className="template-dropdown" role="listbox" aria-label="System templates">
+                {systemTemplates.map((template) => (
+                  <button
+                    type="button"
+                    key={template.id}
+                    className={`template-option ${templatePreviewId === template.id ? "active" : ""}`}
+                    onMouseEnter={() => setTemplatePreviewId(template.id)}
+                    onFocus={() => setTemplatePreviewId(template.id)}
+                    onClick={() => {
+                      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
+                      loadTemplate(template.id, sidebarOpen);
+                      setTemplateMenuOpen(false);
+                    }}
+                  >
+                    <span className="template-option-name">{template.name}</span>
+                    <span className="template-option-meta">{template.nodes.length} nodes</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {templateMenuOpen && templatePreview && (
+              <div className="template-tooltip">
+                <strong>{templatePreview.name}</strong>
+                <p>{templatePreview.description}</p>
+              </div>
+            )}
+            <div className="template-actions">
+              <button type="button" onClick={handleExportTemplate}>
+                Export Template
+              </button>
+              <button type="button" onClick={handleImportTemplateClick}>
+                Import Template
+              </button>
+            </div>
+          </div>
+          <div className="panel-toggle-group">
+            <button
+              type="button"
+              className="control-pill"
+              data-active={showLeftPanel}
+              onClick={() => setShowLeftPanel((prev) => !prev)}
+            >
+              {showLeftPanel ? "Hide Components" : "Show Components"}
+            </button>
+            <button
+              type="button"
+              className="control-pill"
+              data-active={showScenarioPanel}
+              onClick={() => setShowScenarioPanel((prev) => !prev)}
+            >
+              {showScenarioPanel ? "Hide Scenarios" : "Show Scenarios"}
+            </button>
+            <button
+              type="button"
+              className="control-pill"
+              data-active={showPatternPanel}
+              onClick={() => setShowPatternPanel((prev) => !prev)}
+            >
+              {showPatternPanel ? "Hide Patterns" : "Show Patterns"}
+            </button>
+            <button
+              type="button"
+              className="control-pill"
+              data-active={showTrafficPanel}
+              onClick={() => setShowTrafficPanel((prev) => !prev)}
+            >
+              {showTrafficPanel ? "Hide Traffic" : "Show Traffic"}
+            </button>
+            <button type="button" className="control-pill" onClick={handleAutoArrange}>
+              Auto Arrange
+            </button>
+            <button type="button" className="control-pill" data-active="false" onClick={resetCanvas}>
+              Clear Canvas
+            </button>
+          </div>
+        </div>
+        <div className="layout-controls-right">
+          <div className="flow-menu">
+            <div
+              className={`flow-trigger ${flowMenuOpen ? "open" : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => setFlowMenuOpen((prev) => !prev)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setFlowMenuOpen((prev) => !prev);
+                }
+              }}
+            >
+              <div>
+                <span className="flow-trigger-label">Message Flow Simulator</span>
+                <p className="flow-trigger-hint">
+                  {currentFlow
+                    ? `Animating “${currentFlow.name}”.`
+                    : "Pick a scenario to watch a request travel through the system."}
+                </p>
+              </div>
+              <span className="flow-trigger-indicator">{flowMenuOpen ? "✕" : "▶"}</span>
+            </div>
+            {flowMenuOpen && (
+              <div className="flow-dropdown">
+                {messageFlows.map((flow) => (
+                  <button
+                    type="button"
+                    key={flow.id}
+                    className={`flow-option ${
+                      selectedFlowId === flow.id ? "active" : ""
+                    } ${availableFlowIds.has(flow.id) ? "" : "disabled"}`}
+                    onClick={() => {
+                      if (!availableFlowIds.has(flow.id)) return;
+                      setSelectedFlowId(flow.id);
+                      setFlowMenuOpen(false);
+                    }}
+                  >
+                    <div className="flow-option-main">
+                      <span className="flow-option-name">{flow.name}</span>
+                      <span className="flow-option-type">{flow.type}</span>
+                    </div>
+                    <p className="flow-option-description">
+                      {availableFlowIds.has(flow.id)
+                        ? flow.description
+                        : "Unavailable in this layout"}
+                    </p>
+                  </button>
+                ))}
+                {selectedFlowId && (
+                  <button
+                    type="button"
+                    className="flow-option clear"
+                    onClick={() => {
+                      setSelectedFlowId(null);
+                      setFlowMenuOpen(false);
+                    }}
+                  >
+                    Clear Animation
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {connectionError && <div className="connection-error">{connectionError}</div>}
+      <div className="app-layout">
+        {showLeftPanel && (
+          <aside className="component-panel">
+            <h2>Components</h2>
+            <div className="component-category-list">
+              {componentCategories.map((category) => {
+                const isOpen = openCategories[category.id];
+                return (
+                  <div key={category.id} className="component-category">
+                    <button
+                      type="button"
+                      className="accordion-header"
+                      onClick={() =>
+                        setOpenCategories((prev) => ({
+                          ...prev,
+                          [category.id]: !prev[category.id],
+                        }))
+                      }
+                    >
+                      <span>{category.name}</span>
+                      <span>{isOpen ? "−" : "+"}</span>
+                    </button>
+                    {isOpen && (
+                      <>
+                        {category.description && <p className="accordion-description">{category.description}</p>}
+                        <div className="component-list">
+                          {category.items.map((component) => (
+                            <div
+                              key={component.type}
+                              className="component-item"
+                              draggable
+                              onDragStart={(event) => onDragStart(event, component.label)}
+                              title={`${component.label} (${category.name})`}
+                            >
+                              {component.label}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="panel-hint">
+              <p>⚙️ Click ⚙️ button or double-click a node to configure</p>
+              <p>💡 Double-click an edge to reverse its direction</p>
+              <p>🗑️ Select a node and press Delete to remove it</p>
+              <p>🔌 Click a connection, then press Delete to remove it</p>
+              <p>🛡️ Add Circuit Breakers to reroute around outages</p>
+            </div>
+          </aside>
+        )}
+        {showPatternPanel && (
+          <aside className="pattern-panel-wrapper">
+            <div className="pattern-library">
+              <div className="pattern-library-header">
+                <h3>Pattern Library</h3>
+                <p>Drop-in system motifs to accelerate exploration.</p>
+              </div>
+              <div className="pattern-list">
+                {systemPatterns.map((pattern) => (
+                  <div key={pattern.id} className="pattern-card">
+                    <div>
+                      <strong>{pattern.name}</strong>
+                      <p>{pattern.description}</p>
+                    </div>
+                    <button type="button" onClick={() => applyPattern(pattern.id)}>
+                      Add Pattern
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        )}
+        {showTrafficPanel && (
+          <aside className="traffic-panel-wrapper">
+            <TrafficProfilePanel
+              profile={trafficProfile}
+              onProfileChange={handleTrafficProfileChange}
+              onApplyProfile={handleApplyTrafficProfile}
+            />
+          </aside>
+        )}
+        <div className="canvas-container">
+          <div ref={reactFlowWrapper} className="reactflow-wrapper">
+            <ReactFlow
+              nodes={nodesForCanvas}
+              edges={edgesForCanvas}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onEdgeClick={onEdgeClick}
+              onNodesDelete={onNodesDelete}
+              onNodeClick={onNodeClick}
+              onNodeDoubleClick={onNodeDoubleClick}
+              onPaneClick={onPaneClick}
+              onConnect={onConnect}
+              onEdgeDoubleClick={onEdgeDoubleClick}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onInit={setReactFlowInstance}
+              deleteKeyCode={["Delete", "Backspace"]}
+              fitView
+            >
+              <Controls />
+              <Background />
+            </ReactFlow>
+          </div>
+        </div>
+        {(showScenarioPanel || flowInsight) && (
+        <div className="right-sidebar">
+            {flowInsight && (
+              <div className="flow-panel">
+                <div className="flow-panel-header">
+                  <h3>{flowInsight.flow.name}</h3>
+                  <p>{flowInsight.flow.description}</p>
+                  <div className="flow-meta">
+                    <span>Type: {flowInsight.flow.type}</span>
+                    <span>Size: {(flowInsight.flow.messageSizeBytes / 1024).toFixed(1)} KB</span>
+                    <span>Total Latency: {flowInsight.totalLatency.toFixed(1)} ms</span>
+                  </div>
+                </div>
+                <div className="flow-steps">
+                  {flowInsight.steps.map((step, index) => (
+                    <div key={`${step.label}-${index}`} className={`flow-step status-${step.status}`}>
+                      <div className="flow-step-index">{index + 1}</div>
+                      <div className="flow-step-content">
+                        <div className="flow-step-label">{step.label}</div>
+                        {step.description && <div className="flow-step-desc">{step.description}</div>}
+                        <div className="flow-step-metrics">
+                          <span>Latency: {step.latency.toFixed(1)} ms</span>
+                          {step.qps !== undefined && <span>QPS: {step.qps.toFixed(0)}</span>}
+                          <span>Status: {step.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {whatIfInsights.length > 0 && (
+              <div className="what-if-panel">
+                <div className="what-if-header">
+                  <h3>What-if Insights</h3>
+                  <p>Simulated +50% service latency spike.</p>
+                </div>
+                <div className="what-if-list">
+                  {whatIfInsights.map((insight, index) => (
+                    <div key={`${insight.serviceName}-${index}`} className="what-if-card">
+                      <div className="what-if-card-header">
+                        <strong>{insight.serviceName}</strong>
+                        <span>+{insight.latencyDelta.toFixed(0)} ms latency</span>
+                      </div>
+                      {insight.saturatedDownstream.length > 0 ? (
+                        <ul className="what-if-impact-list">
+                          {insight.saturatedDownstream.map((downstream) => (
+                            <li key={downstream.name}>
+                              <span>{downstream.name}</span>
+                              <span>{downstream.usage.toFixed(0)}%</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="what-if-muted">No downstream saturation predicted.</p>
+                      )}
+                      <ul className="what-if-suggestions">
+                        {insight.suggestions.map((suggestion, suggestionIndex) => (
+                          <li key={`${suggestion}-${suggestionIndex}`}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {showScenarioPanel && (
+              <ScenarioPanel
+                nodes={nodesWithMetrics}
+                events={scenarioEvents}
+                clock={scenarioClock}
+                playing={scenarioPlaying}
+                onCreateEvent={handleCreateScenarioEvent}
+                onRemoveEvent={handleRemoveScenarioEvent}
+                onTogglePlay={handleToggleScenarioPlay}
+                onResetClock={handleResetScenario}
+                onTriggerEvent={handleTriggerScenarioEvent}
+              />
+            )}
+          </div>
+        )}
+      </div>
+      {selectedNode && (
+        <ConfigPanel
+          node={selectedNode}
+          onClose={() => setSelectedNode(null)}
+          onSave={handleConfigSave}
+        />
+      )}
+            </>
+          )}
+          {activeView === "metrics" && (
+            <MetricsDashboard
+              summary={monitoringSummary}
+              nodeInsights={nodeInsights}
+              trafficProfile={trafficProfile}
+              scenarioEvents={scenarioEvents}
+            />
+          )}
+          {activeView === "coach" && <CoachView onApplyTemplate={handleApplyGuideTemplate} />}
+          {activeView === "guide" && <GuidePage />}
+        </div>
+      </NodeRenameContext.Provider>
+    </NodeConfigureContext.Provider>
+  );
+}
+const componentCategories = [
+  {
+    id: "clients",
+    name: "Clients & Entry",
+    description: "Traffic sources and user entry points.",
+    items: [{ type: "User", label: "User" }],
+  },
+  {
+    id: "edge",
+    name: "Edge & Delivery",
+    description: "Edge compute, CDN, and real-time gateways.",
+    items: [
+      { type: "CDN", label: "CDN" },
+      { type: "Realtime Gateway", label: "Realtime Gateway" },
+      { type: "Edge Compute", label: "Edge Compute" },
+    ],
+  },
+  {
+    id: "network",
+    name: "Networking & Control",
+    description: "Routing, gateways, and protective layers.",
+    items: [
+      { type: "Load Balancer", label: "Load Balancer" },
+      { type: "API Gateway", label: "API Gateway" },
+      { type: "Service Mesh", label: "Service Mesh" },
+      { type: "Circuit Breaker", label: "Circuit Breaker" },
+    ],
+  },
+  {
+    id: "application",
+    name: "Application Services",
+    description: "Core business logic and processing layers.",
+    items: [
+      { type: "Service", label: "Service" },
+      { type: "Stream Processor", label: "Stream Processor" },
+      { type: "Notification Service", label: "Notification Service" },
+    ],
+  },
+  {
+    id: "messaging",
+    name: "Caching & Messaging",
+    description: "Performance and asynchronous pipelines.",
+    items: [
+      { type: "Cache", label: "Cache" },
+      { type: "Queue", label: "Queue" },
+      { type: "Message Broker", label: "Message Broker" },
+    ],
+  },
+  {
+    id: "data",
+    name: "Data & Storage",
+    description: "Primary data stores and analytical systems.",
+    items: [
+      { type: "DB", label: "Database" },
+      { type: "Search Index", label: "Search Index" },
+      { type: "Object Storage", label: "Object Storage" },
+      { type: "Object Storage Tier", label: "Object Storage Tier" },
+      { type: "Analytics Warehouse", label: "Analytics Warehouse" },
+    ],
+  },
+  {
+    id: "observability",
+    name: "Observability",
+    description: "Monitoring, logging, and tracing.",
+    items: [
+      { type: "Metrics Collector", label: "Metrics Collector" },
+      { type: "Log Aggregator", label: "Log Aggregator" },
+      { type: "Tracing Service", label: "Tracing Service" },
+    ],
+  },
+];
+
+const nodeCategoryMap: Record<string, string> = {
+  User: "Clients & Entry",
+  CDN: "Edge & Delivery",
+  "Realtime Gateway": "Edge & Delivery",
+  "Edge Compute": "Edge & Delivery",
+  "Load Balancer": "Networking & Control",
+  "API Gateway": "Networking & Control",
+  "Service Mesh": "Networking & Control",
+  "Circuit Breaker": "Networking & Control",
+  Service: "Application Services",
+  "Stream Processor": "Application Services",
+  "Notification Service": "Application Services",
+  Cache: "Caching & Messaging",
+  Queue: "Caching & Messaging",
+  "Message Broker": "Caching & Messaging",
+  Database: "Data & Storage",
+  DB: "Data & Storage",
+  "Search Index": "Data & Storage",
+  "Object Storage": "Data & Storage",
+  "Object Storage Tier": "Data & Storage",
+  "Analytics Warehouse": "Data & Storage",
+  "Metrics Collector": "Observability",
+  "Log Aggregator": "Observability",
+  "Tracing Service": "Observability",
+};
+
+const allowedCategoryLinks: Record<string, string[]> = {
+  "Clients & Entry": ["Edge & Delivery", "Networking & Control", "Application Services"],
+  "Edge & Delivery": ["Networking & Control", "Application Services", "Caching & Messaging"],
+  "Networking & Control": [
+    "Networking & Control",
+    "Application Services",
+    "Caching & Messaging",
+    "Data & Storage",
+    "Observability",
+  ],
+  "Application Services": [
+    "Application Services",
+    "Caching & Messaging",
+    "Data & Storage",
+    "Observability",
+  ],
+  "Caching & Messaging": ["Application Services", "Data & Storage", "Observability"],
+  "Data & Storage": ["Application Services", "Observability"],
+  Observability: [],
+};
+
+const getNodeCategory = (label?: string): string | undefined => {
+  if (!label) return undefined;
+  return nodeCategoryMap[label] || nodeCategoryMap[label.replace(/^\s+|\s+$/g, "")];
+};
+
+const canConnectLabels = (sourceLabel?: string, targetLabel?: string): boolean => {
+  if (!sourceLabel || !targetLabel) return true;
+  const sourceCategory = getNodeCategory(sourceLabel);
+  const targetCategory = getNodeCategory(targetLabel);
+  if (!sourceCategory || !targetCategory) return true;
+  const allowedTargets = allowedCategoryLinks[sourceCategory];
+  if (!allowedTargets) return true;
+  return allowedTargets.includes(targetCategory);
+};
