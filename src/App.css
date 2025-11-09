@@ -853,6 +853,24 @@
   box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
 }
 
+.custom-node.node-overcapacity {
+  border-color: #dc2626 !important;
+  animation: overcapacity-pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 18px rgba(220, 38, 38, 0.35);
+}
+
+@keyframes overcapacity-pulse {
+  0% {
+    box-shadow: 0 0 6px rgba(220, 38, 38, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(220, 38, 38, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 6px rgba(220, 38, 38, 0.25);
+  }
+}
+
 .node-header {
   display: flex;
   justify-content: flex-start;

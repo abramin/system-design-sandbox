@@ -24,6 +24,7 @@ export function CustomNode({ data, selected, id }: NodeProps) {
   const nodeCostUsd = data.nodeCostUsd as number | undefined;
   const nodeStatus = (data.nodeStatus as NodeHealthStatus) || "healthy";
   const flowState = (data.flowState as "active" | "trail" | undefined) || null;
+  const overCapacity = Boolean((data.capacityOver as boolean) ?? false);
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [pendingLabel, setPendingLabel] = useState(displayLabel);
 
@@ -113,7 +114,9 @@ export function CustomNode({ data, selected, id }: NodeProps) {
 
   return (
     <div
-      className={`custom-node ${selected ? "selected" : ""} node-state-${nodeStatus} ${flowState ? `flow-${flowState}` : ""}`}
+      className={`custom-node ${selected ? "selected" : ""} node-state-${nodeStatus} ${flowState ? `flow-${flowState}` : ""} ${
+        overCapacity ? "node-overcapacity" : ""
+      }`}
       data-type={label}
       data-status={nodeStatus}
       data-flow-state={flowState || "none"}

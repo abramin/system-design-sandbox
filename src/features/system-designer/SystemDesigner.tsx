@@ -974,19 +974,16 @@ export function SystemDesigner() {
 
   const adjacencyById = useMemo(() => {
     const map = new Map<string, string[]>();
-    edges.forEach((edge) => {
-      if (!map.has(edge.source)) {
-        map.set(edge.source, []);
-      }
-      map.get(edge.source)!.push(edge.target);
-    });
-    return map;
-  }, [edges]);
+  edges.forEach((edge) => {
+    if (!map.has(edge.source)) {
+      map.set(edge.source, []);
+    }
+    map.get(edge.source)!.push(edge.target);
+  });
+  return map;
+}, [edges]);
 
   const nodesWithMetrics = calculateNodeMetrics();
-  const nodesForCanvas = nodesWithMetrics;
-
-  const edgesForCanvas = edges;
 
   const nodeInsights = useMemo<NodeInsight[]>(() => {
     return nodesWithMetrics.map((node) => {
@@ -1017,9 +1014,33 @@ export function SystemDesigner() {
         errorRate: (node.data.nodeErrorRate as number) || 0,
         costUsd: (node.data.nodeCostUsd as number) || 0,
         capacity,
+        capacityPercentage: capacity.percentage,
       };
     });
   }, [nodesWithMetrics]);
+  const overCapacityNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    nodeInsights.forEach((insight) => {
+      if (insight.capacity.percentage >= 100) {
+        ids.add(insight.id);
+      }
+    });
+    return ids;
+  }, [nodeInsights]);
+
+  const nodesForCanvas = useMemo(
+    () =>
+      nodesWithMetrics.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          capacityOver: overCapacityNodeIds.has(node.id),
+        },
+      })),
+    [nodesWithMetrics, overCapacityNodeIds]
+  );
+
+  const edgesForCanvas = edges;
   const monitoringSummary = useMemo<MonitoringSummary | null>(() => {
     if (!nodesWithMetrics || nodesWithMetrics.length === 0) return null;
     let totalQPS = 0;

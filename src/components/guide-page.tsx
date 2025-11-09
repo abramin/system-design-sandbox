@@ -5,7 +5,7 @@ export default function GuidePage() {
         <p className="guide-eyebrow">Product Guide</p>
         <h1>Build, stress, and explain a system in minutes.</h1>
         <p>
-          This walkthrough pairs the canvas, simulator, and monitoring panels so you can move from a blank slate
+          This walkthrough pairs the canvas, scenario tools, and monitoring panels so you can move from a blank slate
           to a narrated architecture example without guesswork.
         </p>
       </section>
@@ -24,7 +24,7 @@ export default function GuidePage() {
             <strong>Configure nodes</strong> by clicking on the gear icon. Set capacity, latency, or error-rate assumptions.
           </li>
           <li>
-            <strong>Stress the system</strong> via the scenario panel or run the Message Flow Simulator to watch a request path.
+            <strong>Stress the system</strong> via the Scenario panel—queue up outages, latency spikes, or throttling events to see how capacity bars and metrics respond in real time.
           </li>
           <li>
             <strong>Inspect metrics</strong> on the Metrics Board for load, saturation, and cost projections.
@@ -53,8 +53,8 @@ export default function GuidePage() {
             <div>
               <h4>What to watch</h4>
               <ul>
-                <li>The Message Flow Simulator highlights cache hits vs. database fallbacks.</li>
-                <li>Metrics Board capacity bars should keep Cache &amp; DB under 70% utilisation.</li>
+                <li>Use the What-if Insights cards plus the Scenario panel to observe how cache misses immediately raise load on the Database and Stream Processor.</li>
+                <li>Metrics Board capacity bars should keep Cache &amp; DB under 70% utilisation; add shards or queue buffers if they creep higher.</li>
                 <li>Use Scenario Panel to trigger a cache outage and observe queue buildup.</li>
               </ul>
             </div>
@@ -73,11 +73,10 @@ export default function GuidePage() {
             </p>
           </article>
           <article>
-            <h4>Node insights</h4>
-            <p>
-              Hover any component to see QPS, bandwidth, latency, and cost breakdowns. Rename nodes to match service names for
-              clearer discussions.
-            </p>
+              <h4>Node insights</h4>
+              <p>
+                Select a node or open the Metrics Board to review QPS, bandwidth, latency, cost, and capacity hotspots. Rename nodes to match service names for clearer discussions, and use the What-if cards before presenting to highlight risk areas.
+              </p>
           </article>
           <article>
             <h4>Coach pairing</h4>

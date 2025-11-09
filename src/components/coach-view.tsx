@@ -570,7 +570,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
           signal: abortSignal,
         });
         if (!response.ok) {
-          throw new Error(`Ollama responded with ${response.status}`);
+          throw new Error(`Model responded with ${response.status}`);
         }
         await response.json();
         if (!cancelled) {
@@ -581,7 +581,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
         if (cancelled || (err instanceof DOMException && err.name === "AbortError")) {
           return;
         }
-        const reason = err instanceof Error ? err.message : "Unable to reach Ollama.";
+        const reason = err instanceof Error ? err.message : "Unable to reach Model.";
         setConnectionStatus("offline");
         setConnectionErrorMessage(reason);
       }
@@ -603,7 +603,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
     };
   }, [normalizedBaseUrl, model]);
 
-  const sendToOllama = useCallback(
+  const sendToModel = useCallback(
     async (content: string, options?: { reset?: boolean }) => {
       const trimmed = content.trim();
       if (!trimmed) return;
@@ -641,7 +641,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
         });
 
         if (!response.ok) {
-          throw new Error(`Ollama responded with ${response.status}`);
+          throw new Error(`Model responded with ${response.status}`);
         }
         const data = await response.json();
         const assistantContent =
@@ -652,7 +652,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
               : "";
 
         if (!assistantContent) {
-          throw new Error("Received an empty response from Ollama.");
+          throw new Error("Received an empty response from Model.");
         }
 
         const assistantMessage: CoachMessage = {
@@ -663,7 +663,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } catch (err) {
-        const reason = err instanceof Error ? err.message : "Unable to reach Ollama.";
+        const reason = err instanceof Error ? err.message : "Unable to reach Model.";
         setChatError(reason);
         setConnectionStatus("offline");
         setConnectionErrorMessage(reason);
@@ -675,7 +675,7 @@ export default function CoachView({ onApplyTemplate }: CoachViewProps) {
   );
 
   const handleStartSession = async () => {
-    await sendToOllama(
+    await sendToModel(
       `I'd like to practice this system design: ${practiceBrief}.
 Start by presenting the problem statement, business context, key metrics, and 3-5 probing questions.`,
       { reset: true }
@@ -686,7 +686,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
     if (!pendingInput.trim() || status !== "idle") return;
     const currentInput = pendingInput;
     setPendingInput("");
-    await sendToOllama(currentInput);
+    await sendToModel(currentInput);
   };
 
   const handleKeyDown = async (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -698,7 +698,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
 
   const handleQuickPrompt = async (prompt: string) => {
     if (!sessionActive || status !== "idle") return;
-    await sendToOllama(prompt);
+    await sendToModel(prompt);
   };
 
   const handleDealScenario = () => {
@@ -771,14 +771,14 @@ Start by presenting the problem statement, business context, key metrics, and 3-
 
   const connectionLabel = useMemo(() => {
     if (connectionStatus === "checking" || connectionStatus === "unknown") {
-      return "Checking Ollama…";
+      return "Checking Model…";
     }
     if (connectionStatus === "offline") {
-      return connectionErrorMessage ?? "Ollama unavailable";
+      return connectionErrorMessage ?? "Model unavailable";
     }
     if (status === "starting") return "Requesting a fresh scenario…";
-    if (status === "responding") return "Waiting for Ollama…";
-    if (chatError) return "Check your Ollama server";
+    if (status === "responding") return "Waiting for Model…";
+    if (chatError) return "Check your Model server";
     return `Connected to ${model}`;
   }, [chatError, connectionErrorMessage, connectionStatus, model, status]);
 
@@ -801,7 +801,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
             <div>
               <p className="coach-eyebrow">Practice setup</p>
               <h2>Design prompt</h2>
-              <p>Ask your local Ollama model to interview you through a system design flow.</p>
+              <p>Ask your local model to interview you through a system design flow.</p>
             </div>
             <button type="button" className="coach-link" onClick={handleDealScenario}>
               Randomize a new idea
@@ -827,7 +827,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
             </button>
           </div>
           <div className="coach-field">
-            <span>Ollama base URL</span>
+            <span>Model base URL</span>
             <input
               type="text"
               value={baseUrl}
@@ -885,8 +885,8 @@ Start by presenting the problem statement, business context, key metrics, and 3-
             )}
           </div>
           <div className="coach-tip">
-            Ollama must be running locally with the selected model pulled. The chat sends a
-            plain <code>POST /api/chat</code> request so it works with any recent build of Ollama.
+            Model must be running locally with the selected model pulled. The chat sends a
+            plain <code>POST /api/chat</code> request so it works with any recent build of Model.
           </div>
         </section>
         <section className="coach-card coach-chat">
@@ -941,10 +941,10 @@ Start by presenting the problem statement, business context, key metrics, and 3-
                   {lastPrompt && (
                     <button
                       type="button"
-                      onClick={() => sendToOllama(lastPrompt)}
+                      onClick={() => sendToModel(lastPrompt)}
                       disabled={status !== "idle"}
                     >
-                      Retry last turn
+                      Check that your model is running
                     </button>
                   )}
                 </div>

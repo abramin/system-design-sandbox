@@ -111,12 +111,14 @@ Use this panel to sanity-check buffer margins even before running custom scenari
 - Downstream configs set realistic `maxConnections`/`throughputRate`.
 - Traffic profile generates non-zero QPS.
 
-## 7. Pattern Library & Circuit Breakers
+## 6. Pattern Library & Circuit Breakers
 
-- Open the *Pattern Library* sidebar to drop in reusable motifs like cache-aside, fan-out, etc. (Each is just a curated set of nodes/edges.)
-- Add *Circuit Breaker* nodes between services to model failover. When a downstream outage is simulated, route around it by connecting the breaker to alternative targets.
+- Open the *Pattern Library* sidebar to drop in reusable motifs such as cache-aside, fan-out, async worker queues, and analytics fan-out. Each pattern is just a pre-wired cluster of standard nodes you can edit afterward.
+- After dropping a pattern, tweak configs (e.g., increase queue throughput or cache storage) so it matches your workload.
+- Add *Circuit Breaker* nodes between services to model failover logic. Wire the breaker to both the primary and backup targets; when you simulate an outage on the primary, traffic should automatically route across the alternate edge.
+- Want to visualize the failover? Trigger an outage on the downstream dependency, then open the Metrics Board to verify the backup is now taking QPS while the breaker shows a degraded status.
 
-## 8. End-to-End Example
+## 7. End-to-End Example
 
 The following mini-playbook ties the tools together:
 
