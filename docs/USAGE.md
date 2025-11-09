@@ -111,17 +111,6 @@ Use this panel to sanity-check buffer margins even before running custom scenari
 - Downstream configs set realistic `maxConnections`/`throughputRate`.
 - Traffic profile generates non-zero QPS.
 
-## 6. Animate Message Flows
-
-- Expand *Message Flow Simulator* in the builder toolbar.
-- Pick a predefined flow (e.g., “Read Path”, “Write Path”).
-- Once selected:
-  - Nodes and edges highlight following the request path.
-  - Flow panel shows per-step latency, QPS, and status.
-  - Use the play controls within the panel to step through each hop.
-
-Great for demos: combine with scenario events to show how bottlenecks move across the flow.
-
 ## 7. Pattern Library & Circuit Breakers
 
 - Open the *Pattern Library* sidebar to drop in reusable motifs like cache-aside, fan-out, etc. (Each is just a curated set of nodes/edges.)

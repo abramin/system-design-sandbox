@@ -1,26 +1,57 @@
 # System Design Sandbox
 
-This Vite + React + TypeScript app lets you sketch distributed-system topologies, inject synthetic demand/failure scenarios, and inspect live metrics.
+System Design Sandbox is a Vite + React + TypeScript application for sketching distributed systems, simulating traffic spikes or incidents, and reading live capacity/latency/cost projections. It ships with a coach mode, pattern library, what-if analytics. Using the coach mode requires an optional LLM model.
 
-## Getting Started
+## Features at a Glance
+
+- **Drag-and-drop canvas** with configurable nodes (services, queues, caches, databases, CDN, etc.) and auto-layout.
+- **Traffic & scenario simulators** to model DAU bursts, latency spikes, outages, throttling.
+- **Metrics board** that aggregates QPS, latency, error rate, cost, saturation hot spots, and what-if insights.
+- **Coach tab** to practice interview-style conversations backed by a local or remote LLM (optional).
+- **Guide tab** describing recommended workflows and an end-to-end example.
+
+## Download & Run Locally
 
 ```bash
+git clone https://github.com/<your-org>/sysdesign-sandbox.git
+cd sysdesign-sandbox
 npm install
 npm run dev
 ```
 
-Open the printed local URL (usually `http://localhost:5173`) to launch the sandbox. Hot reloading is enabled by default.
+Open the printed URL (normally `http://localhost:5173`). The app hot-reloads as you edit.
+
+
+## Coach / LLM Integration
+
+The Coach tab can talk to either a **local** model or an **external API**:
+
+### Option A: Local Llama (Ollama example)
+
+1. Install [Ollama](https://ollama.ai/) and pull a model, e.g.:
+   ```bash
+   ollama run llama3.2
+   ```
+2. Start the sandbox (`npm run dev`) and open the Coach tab.
+3. Set *Base URL* to `http://localhost:11434` (default) and the *Model* name you pulled (e.g. `llama3.2`).
+4. Chat with the coach; snapshots stay on your machine.
+
+### Option B: Remote API (OpenAI, Anthropic, etc.)
+
+1. Provide the HTTPS base URL and model ID for the service.
+2. Enter an API key **only if you accept the risk**: the UI never uploads your conversations anywhere, but your key will be sent to the configured endpoint for inference.
+3. Avoid sharing private credentials in screenshots/commits and rotate keys regularly.
+
+> ⚠️ **Security Warning**: Never upload production or proprietary API keys to GitHub or other public places. If you use a hosted LLM, keep the sandbox on trusted networks and store keys in `.env.local` (gitignored) rather than hard-coding them.
 
 ## Documentation
 
-See [`docs/USAGE.md`](docs/USAGE.md) for a comprehensive walkthrough that covers:
-
-- Building architectures on the design canvas
-- Using traffic profiles, scenario simulations, and message flows
-- Interpreting the Metrics Board and What-if Insights
-- Step-by-step examples and troubleshooting tips
+- [`docs/USAGE.md`](docs/USAGE.md) — full walkthrough of builder panels, traffic profiles, scenario scripting, metrics, and troubleshooting.
+- **Guide tab** — in-app reference with an example (“Personalised Feed”), onboarding steps, and tips.
+- **Coach tab** — system-design interview practice with snapshot/export support.
 
 ## Tooling Notes
 
-- The project uses [Vite](https://vitejs.dev) with React Fast Refresh for rapid iteration.
-- ESLint is configured via `eslint.config.js`. If you need type-aware rules, follow the guidance in the config file comments to enable `tseslint.configs.recommendedTypeChecked` (or stricter variants) and optionally add React-specific plugins such as `eslint-plugin-react-x` and `eslint-plugin-react-dom`.
+- Built with [Vite](https://vitejs.dev) + React 18 + TypeScript.
+- ESLint config lives in `eslint.config.js`. For type-aware linting, enable `tseslint.configs.recommendedTypeChecked` as described in-file and optionally add React plugins (e.g., `eslint-plugin-react-x`).
+- Styles live in `src/App.css`; domain-specific logic is organized under `src/features/system-designer`.
