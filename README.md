@@ -1,6 +1,8 @@
 # System Design Sandbox
 
 System Design Sandbox is a Vite + React + TypeScript application for sketching distributed systems, simulating traffic spikes or incidents, and reading live capacity/latency/cost projections. It ships with a coach mode, pattern library, what-if analytics. Using the coach mode requires an optional LLM model.
+![2025-11-09, 08_31_15 a m -Master_System_Design_with_Interactive_Templates_and_Coaching (1)](https://github.com/user-attachments/assets/badbab69-dfa6-481e-b680-d42bdd4b9028)
+
 
 ## Features at a Glance
 
