@@ -804,7 +804,7 @@ Start by presenting the problem statement, business context, key metrics, and 3-
               <p>Ask your local Ollama model to interview you through a system design flow.</p>
             </div>
             <button type="button" className="coach-link" onClick={handleDealScenario}>
-              Deal a new idea
+              Randomize a new idea
             </button>
           </header>
           <label className="coach-field">

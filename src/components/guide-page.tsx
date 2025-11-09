@@ -21,7 +21,7 @@ export default function GuidePage() {
             queues, and stream processors.
           </li>
           <li>
-            <strong>Configure nodes</strong> by double-clicking them. Set capacity, latency, or error-rate assumptions.
+            <strong>Configure nodes</strong> by clicking on the gear icon. Set capacity, latency, or error-rate assumptions.
           </li>
           <li>
             <strong>Stress the system</strong> via the scenario panel or run the Message Flow Simulator to watch a request path.
@@ -82,7 +82,7 @@ export default function GuidePage() {
           <article>
             <h4>Coach pairing</h4>
             <p>
-              Switch to the Coach tab to practice explaining your design. You can export the conversation as JSON once you are
+              Switch to the Coach tab to practice explaining your design. You push your design to the canvas once you are
               satisfied.
             </p>
           </article>

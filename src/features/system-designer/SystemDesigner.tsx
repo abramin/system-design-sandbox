@@ -27,7 +27,6 @@ import { NodeConfigureContext, NodeRenameContext } from "./context/node-config";
 import {
   initialNodes,
   initialEdges,
-  messageFlows,
   systemTemplates,
   templateDisplayLabels,
   systemPatterns,
@@ -61,14 +60,10 @@ export function SystemDesigner() {
   const [scenarioClock, setScenarioClock] = useState(0);
   const [scenarioPlaying, setScenarioPlaying] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
-  const [flowPlaybackIndex, setFlowPlaybackIndex] = useState(0);
   const [currentTemplateId, setCurrentTemplateId] = useState<string | null>(null);
   const [templatePreviewId, setTemplatePreviewId] = useState<string | null>(null);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
-  const [flowMenuOpen, setFlowMenuOpen] = useState(false);
   const templateMenuRef = useRef<HTMLDivElement | null>(null);
-  const flowMenuRef = useRef<HTMLDivElement | null>(null);
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {};
     componentCategories.forEach((category) => {
@@ -82,7 +77,7 @@ export function SystemDesigner() {
   const [showTrafficPanel, setShowTrafficPanel] = useState(true);
   const [activeView, setActiveView] = useState<"builder" | "metrics" | "coach" | "guide">("builder");
   const loadTemplate = useCallback(
-    (templateId: string, sidebarOpen: boolean) => {
+    (templateId: string) => {
       const template = systemTemplates.find((t) => t.id === templateId);
       if (!template) return;
       const clonedNodes = template.nodes.map((node) => ({
@@ -99,7 +94,7 @@ export function SystemDesigner() {
           }
         });
       }
-      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, showScenarioPanel);
       const spacedNodes = layoutNodesWithFlow(clonedNodes, template.edges, width, height);
       const clonedEdges = template.edges.map((edge) => ({ ...edge }));
       setNodes(spacedNodes);
@@ -117,11 +112,9 @@ export function SystemDesigner() {
       setScenarioEvents([]);
       setScenarioClock(0);
       setScenarioPlaying(false);
-      setSelectedFlowId(null);
-      setFlowPlaybackIndex(0);
       setCurrentTemplateId(templateId);
     },
-    [setNodes, setEdges, showLeftPanel]
+    [setNodes, setEdges, showLeftPanel, showScenarioPanel]
   );
 
   const applyPattern = useCallback(
@@ -146,8 +139,7 @@ export function SystemDesigner() {
         target: idMap.get(edge.target) ?? edge.target,
       }));
       const anticipatedEdges = edges.concat(clonedEdges);
-      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
-      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, showScenarioPanel);
       setNodes((prevNodes) => {
         const combined = prevNodes.concat(
           clonedNodes.map((node) => ({
@@ -159,7 +151,7 @@ export function SystemDesigner() {
       });
       setEdges((prevEdges) => prevEdges.concat(clonedEdges));
     },
-    [edges, selectedFlowId, showLeftPanel, showScenarioPanel]
+    [edges, showLeftPanel, showScenarioPanel]
   );
 
   const loadImportedTemplate = useCallback(
@@ -214,19 +206,16 @@ export function SystemDesigner() {
               : { type: MarkerType.ArrowClosed, color: "#007bff" },
         });
       });
-      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
-      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, showScenarioPanel);
       const laidOutNodes = layoutNodesWithFlow(preparedNodes, preparedEdges, width, height);
       setNodes(laidOutNodes);
       setEdges(preparedEdges);
       setScenarioEvents([]);
       setScenarioClock(0);
       setScenarioPlaying(false);
-      setSelectedFlowId(null);
-      setFlowPlaybackIndex(0);
       setCurrentTemplateId(null);
     },
-    [selectedFlowId, showLeftPanel, showScenarioPanel, setEdges, setNodes]
+    [showLeftPanel, showScenarioPanel, setEdges, setNodes]
   );
 
   const handleApplyGuideTemplate = useCallback(
@@ -317,8 +306,6 @@ export function SystemDesigner() {
     edgeIdCounter = 1;
     setSelectedNode(null);
     setSelectedEdgeId(null);
-    setSelectedFlowId(null);
-    setFlowPlaybackIndex(0);
     setCurrentTemplateId(null);
   }, []);
 
@@ -327,11 +314,10 @@ export function SystemDesigner() {
       if (prevNodes.length === 0) {
         return prevNodes;
       }
-      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
-      const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+      const { width, height } = computeAvailableDimensions(showLeftPanel, showScenarioPanel);
       return layoutNodesWithFlow(prevNodes, edges, width, height);
     });
-  }, [edges, selectedFlowId, showLeftPanel, showScenarioPanel]);
+  }, [edges, showLeftPanel, showScenarioPanel]);
 
   const clearEdgeSelection = useCallback(() => {
     setSelectedEdgeId(null);
@@ -447,14 +433,6 @@ export function SystemDesigner() {
     return scenarioEvents.reduce((max, event) => Math.max(max, event.startTime + event.durationSeconds), 0);
   }, [scenarioEvents]);
 
-  const templateNodeLabelMap = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    systemTemplates.forEach((template) => {
-      map.set(template.id, new Set(template.nodes.map((node) => node.data.label as string)));
-    });
-    return map;
-  }, []);
-
   const templatePreview = useMemo(() => {
     if (!templatePreviewId) return null;
     return systemTemplates.find((template) => template.id === templatePreviewId) ?? null;
@@ -481,17 +459,6 @@ export function SystemDesigner() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [templateMenuOpen]);
-
-  useEffect(() => {
-    if (!flowMenuOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (flowMenuRef.current && !flowMenuRef.current.contains(event.target as HTMLElement)) {
-        setFlowMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [flowMenuOpen]);
 
   useEffect(() => {
     if (scenarioClock <= 0) {
@@ -559,47 +526,11 @@ export function SystemDesigner() {
 
   const activeImpacts = useMemo(() => deriveScenarioImpacts(scenarioEvents, scenarioClock), [scenarioEvents, scenarioClock]);
 
-  const availableFlowIds = useMemo(() => {
-    if (!currentTemplateId) return new Set(messageFlows.map((flow) => flow.id));
-    const allowedLabels = templateNodeLabelMap.get(currentTemplateId);
-    if (!allowedLabels) return new Set<string>();
-    const allowedFlowIds = new Set<string>();
-    messageFlows.forEach((flow) => {
-      const matches = flow.steps.every((step) => allowedLabels.has(step.label));
-      if (matches) {
-        allowedFlowIds.add(flow.id);
-      }
-    });
-    return allowedFlowIds;
-  }, [currentTemplateId, templateNodeLabelMap]);
-
-  const currentFlow = useMemo(() => {
-    if (!selectedFlowId || !availableFlowIds.has(selectedFlowId)) return null;
-    return messageFlows.find((flow) => flow.id === selectedFlowId) ?? null;
-  }, [selectedFlowId, availableFlowIds]);
-  const flowStepCount = currentFlow?.steps.length ?? 0;
-
   useEffect(() => {
     if (!connectionError) return;
     const timer = window.setTimeout(() => setConnectionError(null), 4000);
     return () => window.clearTimeout(timer);
   }, [connectionError]);
-
-  useEffect(() => {
-    if (!selectedFlowId) {
-      setFlowPlaybackIndex(0);
-    }
-  }, [selectedFlowId]);
-
-  useEffect(() => {
-    if (!currentFlow || flowStepCount === 0) {
-      return;
-    }
-    const intervalId = window.setInterval(() => {
-      setFlowPlaybackIndex((prev) => (prev + 1) % flowStepCount);
-    }, 1500);
-    return () => window.clearInterval(intervalId);
-  }, [currentFlow, flowStepCount]);
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -704,12 +635,11 @@ export function SystemDesigner() {
 
       setNodes((nds) => {
         const nextNodes = nds.concat(newNode);
-        const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
-        const { width, height } = computeAvailableDimensions(showLeftPanel, sidebarOpen);
+        const { width, height } = computeAvailableDimensions(showLeftPanel, showScenarioPanel);
         return layoutNodesWithFlow(nextNodes, edges, width, height);
       });
     },
-    [reactFlowInstance, setNodes, showLeftPanel, showScenarioPanel, selectedFlowId, edges]
+    [reactFlowInstance, setNodes, showLeftPanel, showScenarioPanel, edges]
   );
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -1054,120 +984,9 @@ export function SystemDesigner() {
   }, [edges]);
 
   const nodesWithMetrics = calculateNodeMetrics();
-  const flowHighlight = useMemo(() => {
-    if (!currentFlow || flowStepCount === 0) {
-      return {
-        activeLabel: null as string | null,
-        trailLabels: new Set<string>(),
-        activeEdgeKey: null as string | null,
-        trailEdgeKeys: new Set<string>(),
-      };
-    }
-    const steps = currentFlow.steps;
-    const stepIndex = flowPlaybackIndex % flowStepCount;
-    const trailLabels = new Set<string>();
-    for (let i = 0; i < stepIndex; i += 1) {
-      trailLabels.add(steps[i].label);
-    }
-    const activeLabel = steps[stepIndex]?.label ?? null;
-    const trailEdgeKeys = new Set<string>();
-    for (let i = 1; i < stepIndex; i += 1) {
-      const prev = steps[i - 1];
-      const curr = steps[i];
-      if (prev && curr) {
-        trailEdgeKeys.add(`${prev.label}->${curr.label}`);
-      }
-    }
-    let activeEdgeKey: string | null = null;
-    if (stepIndex > 0) {
-      const prev = steps[stepIndex - 1];
-      const curr = steps[stepIndex];
-      if (prev && curr) {
-        activeEdgeKey = `${prev.label}->${curr.label}`;
-      }
-    }
-    return { activeLabel, trailLabels, activeEdgeKey, trailEdgeKeys };
-  }, [currentFlow, flowStepCount, flowPlaybackIndex]);
-  const nodeLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    nodesWithMetrics.forEach((node) => {
-      map.set(node.id, node.data.label as string);
-    });
-    return map;
-  }, [nodesWithMetrics]);
+  const nodesForCanvas = nodesWithMetrics;
 
-  const nodesForCanvas = useMemo(() => {
-    if (!flowHighlight.activeLabel && flowHighlight.trailLabels.size === 0) {
-      return nodesWithMetrics;
-    }
-    return nodesWithMetrics.map((node) => {
-      const label = node.data.label as string;
-      let flowState: "active" | "trail" | undefined;
-      if (flowHighlight.activeLabel && label === flowHighlight.activeLabel) {
-        flowState = "active";
-      } else if (flowHighlight.trailLabels.has(label)) {
-        flowState = "trail";
-      }
-      if (!flowState && !(node.data as Record<string, unknown>).flowState) {
-        return node;
-      }
-      const nextData = { ...node.data } as Record<string, unknown>;
-      if (flowState) {
-        nextData.flowState = flowState;
-      } else {
-        delete nextData.flowState;
-      }
-      return { ...node, data: nextData };
-    });
-  }, [nodesWithMetrics, flowHighlight]);
-
-  const edgesForCanvas = useMemo(() => {
-    if (!selectedFlowId) {
-      return edges;
-    }
-    const hasHighlight = Boolean(flowHighlight.activeEdgeKey) || flowHighlight.trailEdgeKeys.size > 0;
-    if (!hasHighlight) {
-      return edges;
-    }
-    return edges.map((edge) => {
-      const sourceLabel = nodeLabelById.get(edge.source);
-      const targetLabel = nodeLabelById.get(edge.target);
-      if (!sourceLabel || !targetLabel) {
-        return edge;
-      }
-      const key = `${sourceLabel}->${targetLabel}`;
-      let flowClass: string | null = null;
-      if (flowHighlight.activeEdgeKey && key === flowHighlight.activeEdgeKey) {
-        flowClass = "flow-active";
-      } else if (flowHighlight.trailEdgeKeys.has(key)) {
-        flowClass = "flow-trail";
-      }
-      if (!flowClass) {
-        if (!edge.className) {
-          return edge;
-        }
-        const baseClass = edge.className
-          .split(" ")
-          .filter((cls) => cls && !cls.startsWith("flow-"))
-          .join(" ");
-        if (baseClass === edge.className) {
-          return edge;
-        }
-        return { ...edge, className: baseClass || undefined };
-      }
-      const baseClass = edge.className
-        ? edge.className
-            .split(" ")
-            .filter((cls) => cls && !cls.startsWith("flow-"))
-            .join(" ")
-        : "";
-      const nextClass = [baseClass, flowClass].filter(Boolean).join(" ");
-      if (nextClass === edge.className) {
-        return edge;
-      }
-      return { ...edge, className: nextClass };
-    });
-  }, [edges, nodeLabelById, flowHighlight, selectedFlowId]);
+  const edgesForCanvas = edges;
 
   const nodeInsights = useMemo<NodeInsight[]>(() => {
     return nodesWithMetrics.map((node) => {
@@ -1328,29 +1147,8 @@ export function SystemDesigner() {
     });
     return insights;
   }, [adjacencyById, nodesWithMetrics]);
+  const shouldShowRightSidebar = showScenarioPanel || whatIfInsights.length > 0;
 
-
-  const flowInsight = useMemo(() => {
-    if (!currentFlow) return null;
-    const detailedSteps = currentFlow.steps.map((step) => {
-      const node = nodesWithMetrics.find((n) => (n.data.label as string) === step.label);
-      const latency = (node?.data.nodeLatencyMs as number) ?? defaultLatencies[step.label] ?? 0;
-      const qps = node?.data.nodeQPS as number | undefined;
-      const status = (node?.data.nodeStatus as NodeHealthStatus) || "healthy";
-      return {
-        ...step,
-        latency,
-        qps,
-        status,
-      };
-    });
-    const totalLatency = detailedSteps.reduce((sum, step) => sum + (step.latency || 0), 0);
-    return {
-      flow: currentFlow,
-      steps: detailedSteps,
-      totalLatency,
-    };
-  }, [currentFlow, nodesWithMetrics]);
 
   const nodeTypes = {
     custom: CustomNode,
@@ -1425,8 +1223,7 @@ export function SystemDesigner() {
                     onMouseEnter={() => setTemplatePreviewId(template.id)}
                     onFocus={() => setTemplatePreviewId(template.id)}
                     onClick={() => {
-                      const sidebarOpen = showScenarioPanel || Boolean(selectedFlowId);
-                      loadTemplate(template.id, sidebarOpen);
+                      loadTemplate(template.id);
                       setTemplateMenuOpen(false);
                     }}
                   >
@@ -1490,72 +1287,6 @@ export function SystemDesigner() {
             <button type="button" className="control-pill" data-active="false" onClick={resetCanvas}>
               Clear Canvas
             </button>
-          </div>
-        </div>
-        <div className="layout-controls-right">
-          <div className="flow-menu">
-            <div
-              className={`flow-trigger ${flowMenuOpen ? "open" : ""}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => setFlowMenuOpen((prev) => !prev)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setFlowMenuOpen((prev) => !prev);
-                }
-              }}
-            >
-              <div>
-                <span className="flow-trigger-label">Message Flow Simulator</span>
-                <p className="flow-trigger-hint">
-                  {currentFlow
-                    ? `Animating “${currentFlow.name}”.`
-                    : "Pick a scenario to watch a request travel through the system."}
-                </p>
-              </div>
-              <span className="flow-trigger-indicator">{flowMenuOpen ? "✕" : "▶"}</span>
-            </div>
-            {flowMenuOpen && (
-              <div className="flow-dropdown">
-                {messageFlows.map((flow) => (
-                  <button
-                    type="button"
-                    key={flow.id}
-                    className={`flow-option ${
-                      selectedFlowId === flow.id ? "active" : ""
-                    } ${availableFlowIds.has(flow.id) ? "" : "disabled"}`}
-                    onClick={() => {
-                      if (!availableFlowIds.has(flow.id)) return;
-                      setSelectedFlowId(flow.id);
-                      setFlowMenuOpen(false);
-                    }}
-                  >
-                    <div className="flow-option-main">
-                      <span className="flow-option-name">{flow.name}</span>
-                      <span className="flow-option-type">{flow.type}</span>
-                    </div>
-                    <p className="flow-option-description">
-                      {availableFlowIds.has(flow.id)
-                        ? flow.description
-                        : "Unavailable in this layout"}
-                    </p>
-                  </button>
-                ))}
-                {selectedFlowId && (
-                  <button
-                    type="button"
-                    className="flow-option clear"
-                    onClick={() => {
-                      setSelectedFlowId(null);
-                      setFlowMenuOpen(false);
-                    }}
-                  >
-                    Clear Animation
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1671,37 +1402,8 @@ export function SystemDesigner() {
             </ReactFlow>
           </div>
         </div>
-        {(showScenarioPanel || flowInsight) && (
-        <div className="right-sidebar">
-            {flowInsight && (
-              <div className="flow-panel">
-                <div className="flow-panel-header">
-                  <h3>{flowInsight.flow.name}</h3>
-                  <p>{flowInsight.flow.description}</p>
-                  <div className="flow-meta">
-                    <span>Type: {flowInsight.flow.type}</span>
-                    <span>Size: {(flowInsight.flow.messageSizeBytes / 1024).toFixed(1)} KB</span>
-                    <span>Total Latency: {flowInsight.totalLatency.toFixed(1)} ms</span>
-                  </div>
-                </div>
-                <div className="flow-steps">
-                  {flowInsight.steps.map((step, index) => (
-                    <div key={`${step.label}-${index}`} className={`flow-step status-${step.status}`}>
-                      <div className="flow-step-index">{index + 1}</div>
-                      <div className="flow-step-content">
-                        <div className="flow-step-label">{step.label}</div>
-                        {step.description && <div className="flow-step-desc">{step.description}</div>}
-                        <div className="flow-step-metrics">
-                          <span>Latency: {step.latency.toFixed(1)} ms</span>
-                          {step.qps !== undefined && <span>QPS: {step.qps.toFixed(0)}</span>}
-                          <span>Status: {step.status}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+        {shouldShowRightSidebar && (
+          <div className="right-sidebar">
             {whatIfInsights.length > 0 && (
               <div className="what-if-panel">
                 <div className="what-if-header">
